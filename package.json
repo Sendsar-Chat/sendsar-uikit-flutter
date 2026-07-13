@@ -1,0 +1,26 @@
+{
+  "name": "sendsar-uikit-flutter",
+  "version": "0.2.0",
+  "description": "Sendsar UI Kit for Flutter — sample app + sendsar_chat_uikit library",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sendsar-Chat/sendsar-uikit-flutter.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "start:bff": "node sample-bff/server.mjs",
+    "start:flutter": "cd example && flutter run -d chrome",
+    "start": "concurrently -k -n bff,flutter -c blue,green \"npm run start:bff\" \"npm run start:flutter\""
+  },
+  "private": true,
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2"
+  }
+}

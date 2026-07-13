@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Secrets (never commit real API keys)
+.env
+!.env.example
+!**/.env.example
+
+# Flutter / Dart
+.dart_tool/
+.packages
+build/
+**/build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+
+# IDEs
+.idea/
+.vscode/*
+!.vscode/settings.json
+.history/
+
+# System
+.DS_Store
+Thumbs.db
