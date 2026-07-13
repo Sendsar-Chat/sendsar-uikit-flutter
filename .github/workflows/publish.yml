@@ -1,0 +1,65 @@
+name: Publish sendsar_chat_uikit
+
+on:
+  push:
+    tags:
+      - "sendsar_chat_uikit-v[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  test:
+    name: Test sendsar_chat_uikit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: sendsar_chat_uikit
+        run: flutter pub get
+
+      - name: Test
+        working-directory: sendsar_chat_uikit
+        run: flutter test
+
+  publish-pub:
+    name: Publish sendsar_chat_uikit to pub.dev
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dart-lang/setup-dart@v1
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: sendsar_chat_uikit
+        run: flutter pub get
+
+      - name: Publish dry-run
+        working-directory: sendsar_chat_uikit
+        run: dart pub publish --dry-run
+
+      - name: Publish to pub.dev (skip if version already published)
+        working-directory: sendsar_chat_uikit
+        run: |
+          set -euo pipefail
+          VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          if curl -sf "https://pub.dev/api/packages/sendsar_chat_uikit/versions/${VERSION}" >/dev/null; then
+            echo "sendsar_chat_uikit ${VERSION} already on pub.dev — skipping publish"
+          else
+            dart pub publish --force
+          fi

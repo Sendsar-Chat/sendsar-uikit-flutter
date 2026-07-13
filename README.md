@@ -43,7 +43,14 @@ The example defaults to `http://localhost:4400` for the BFF. Override if needed:
 flutter run -d chrome --dart-define=BFF_BASE_URL=http://localhost:4400
 ```
 
-The UI kit depends on `sendsar_chat` from pub.dev. To develop against a local monorepo checkout, the path override is already set in `sendsar_chat_uikit/pubspec.yaml`.
+The UI kit depends on [`sendsar_chat`](https://pub.dev/packages/sendsar_chat) from pub.dev. To develop against a local monorepo checkout:
+
+```bash
+npm run use:local-sdk   # requires ../sendsar-monorepo
+cd sendsar_chat_uikit && flutter pub get
+```
+
+Revert with `npm run use:pub-sdk`. See [PUBLISHING.md](PUBLISHING.md) for pub.dev release steps.
 
 ## Sample app features
 
@@ -140,6 +147,7 @@ SendsarChatShell(
 | `example/` | Demo Flutter app |
 | `sample-bff/` | Demo backend (session JWT + room helpers; CORS for Flutter web) |
 | `scripts/setup.mjs` | Copies `sample-bff/.env.example` → `.env` |
+| `scripts/use-local-sdk.mjs` | Local `sendsar_chat` path override for monorepo dev |
 
 ### `sample-bff` endpoints
 
@@ -157,8 +165,12 @@ Default port: **4400** (`sample-bff/.env`).
 ## Related
 
 - [sendsar_chat](https://pub.dev/packages/sendsar_chat) — Flutter chat SDK
+- [sendsar_chat_uikit](https://pub.dev/packages/sendsar_chat_uikit) — this package on pub.dev
 - [sendsar-uikit-angular](https://github.com/Sendsar-Chat/sendsar-uikit-angular) — Angular UI kit (same BFF pattern)
-- [CometChat UI Kit Flutter](https://github.com/cometchat/cometchat-uikit-flutter) — reference layout
+
+## Publishing
+
+See [PUBLISHING.md](PUBLISHING.md) for pub.dev OIDC setup, release tags (`sendsar_chat_uikit-v0.2.0`), and the pre-publish checklist.
 
 ## License
 

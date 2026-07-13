@@ -459,10 +459,11 @@ packages:
   sendsar_chat:
     dependency: "direct main"
     description:
-      path: "../../sendsar-monorepo/packages/chat-sdk-flutter"
-      relative: true
-    source: path
-    version: "0.1.2"
+      name: sendsar_chat
+      sha256: "410b6851583a5eabc19282468f6f5587a504bcb276ecbce4c7d4c41337a4f3c9"
+      url: "https://pub.dev"
+    source: hosted
+    version: "0.1.0"
   sky_engine:
     dependency: transitive
     description: flutter

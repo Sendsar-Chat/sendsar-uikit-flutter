@@ -12,6 +12,8 @@
   },
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "use:local-sdk": "node scripts/use-local-sdk.mjs",
+    "use:pub-sdk": "node scripts/use-local-sdk.mjs --pub",
     "start:bff": "node sample-bff/server.mjs",
     "start:flutter": "cd example && flutter run -d chrome",
     "start": "concurrently -k -n bff,flutter -c blue,green \"npm run start:bff\" \"npm run start:flutter\""

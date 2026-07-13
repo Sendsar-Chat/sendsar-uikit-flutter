@@ -1,0 +1,5 @@
+# Local monorepo dev — copy to pubspec_overrides.yaml (gitignored).
+# From repo root: npm run use:local-sdk
+dependency_overrides:
+  sendsar_chat:
+    path: ../../sendsar-monorepo/packages/chat-sdk-flutter
