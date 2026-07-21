@@ -7,8 +7,48 @@ import '../services/sendsar_session_service.dart';
 import '../theme/sendsar_chat_theme.dart';
 import '../theme/sendsar_styles.dart';
 import '../utils/format_time.dart';
+import '../utils/message_parts.dart';
 import '../utils/room_label.dart';
 import '../utils/user_directory.dart';
+
+/// Client-side lastMessage snapshot derived from realtime `new-message`
+/// events. Used when the server room list is stale (e.g. call logs).
+typedef LastMessageOverride = ({String preview, String createdAt});
+
+/// Picks the newer of two lastMessage overrides.
+LastMessageOverride? newerOverride(
+  LastMessageOverride? a,
+  LastMessageOverride? b,
+) {
+  if (a == null) return b;
+  if (b == null) return a;
+  final aAt = DateTime.tryParse(a.createdAt);
+  final bAt = DateTime.tryParse(b.createdAt);
+  if (aAt == null) return b;
+  if (bAt == null) return a;
+  return aAt.isBefore(bAt) ? b : a;
+}
+
+/// Picks the fresher of the server `room.lastMessage` and a realtime
+/// [override]; on a tie the override wins (it always carries a preview).
+({String? preview, String? createdAt}) effectiveLastMessage(
+  RoomSummary room,
+  LastMessageOverride? override,
+) {
+  final server = room.lastMessage;
+  final serverResult =
+      (preview: server?.previewText, createdAt: server?.createdAt);
+  if (override == null) return serverResult;
+
+  final overrideAt = DateTime.tryParse(override.createdAt);
+  if (overrideAt == null) return serverResult;
+
+  final serverAt = server == null ? null : DateTime.tryParse(server.createdAt);
+  if (serverAt == null || !overrideAt.isBefore(serverAt)) {
+    return (preview: override.preview, createdAt: override.createdAt);
+  }
+  return serverResult;
+}
 
 /// Imperative handle for [SendsarConversationList].
 class SendsarConversationListController {
@@ -46,6 +86,7 @@ class SendsarConversationList extends StatefulWidget {
     this.controller,
     this.style,
     this.itemBuilder,
+    this.lastMessageOverrides = const {},
   });
 
   final String? selectedRoomId;
@@ -58,6 +99,10 @@ class SendsarConversationList extends StatefulWidget {
   final SendsarConversationListStyle? style;
   final SendsarConversationItemBuilder? itemBuilder;
 
+  /// Fresher lastMessage data (per room id) from realtime events; a row uses
+  /// it when newer than the server-provided `room.lastMessage`.
+  final Map<String, LastMessageOverride> lastMessageOverrides;
+
   @override
   State<SendsarConversationList> createState() =>
       _SendsarConversationListState();
@@ -69,6 +114,11 @@ class _SendsarConversationListState extends State<SendsarConversationList> {
   bool _refreshing = false;
   String? _error;
   String _searchQuery = '';
+
+  /// Latest-message snapshots fetched directly per room when the server room
+  /// list omits `lastMessage` (stale gateways return null even for rooms
+  /// with messages).
+  final Map<String, LastMessageOverride> _backfill = {};
 
   @override
   void initState() {
@@ -121,6 +171,7 @@ class _SendsarConversationListState extends State<SendsarConversationList> {
       setState(() {
         _rooms = sortRoomsByLatestActivity(result.rooms);
       });
+      _backfillMissingLastMessages(result.rooms);
     } catch (err) {
       if (!mounted) return;
       setState(() {
@@ -144,12 +195,66 @@ class _SendsarConversationListState extends State<SendsarConversationList> {
     return room;
   }
 
+  /// For rooms the server returned without `lastMessage`, fetch their latest
+  /// message directly so previews and timestamps still show up.
+  void _backfillMissingLastMessages(List<RoomSummary> rooms) {
+    final selfId = widget.selfUserId.isNotEmpty
+        ? widget.selfUserId
+        : context.read<SendsarSessionService>().session?.chatUserId;
+    final chat = context.read<SendsarChatService>();
+
+    for (final room in rooms.where((r) => r.lastMessage == null)) {
+      Future(() async {
+        try {
+          final result = await chat.getMessages(
+            room.id,
+            const ListMessagesParams(limit: 1),
+          );
+          final msg = result.messages.firstOrNull;
+          if (msg == null || !mounted) return;
+          final preview = messagePreview(msg, selfUserId: selfId);
+          setState(() {
+            _backfill[room.id] = newerOverride(
+              _backfill[room.id],
+              (preview: preview, createdAt: msg.createdAt),
+            )!;
+          });
+        } catch (_) {
+          // Best-effort: the row just keeps its fallback display.
+        }
+      });
+    }
+  }
+
+  ({String? preview, String? createdAt}) _effectiveLast(RoomSummary room) {
+    final override = newerOverride(
+      _backfill[room.id],
+      widget.lastMessageOverrides[room.id],
+    );
+    return effectiveLastMessage(room, override);
+  }
+
+  int _effectiveActivityTime(RoomSummary room) {
+    // Fall back to the room's creation time (matches what the row displays)
+    // so rooms without a known last message don't all collapse to the bottom.
+    final createdAt = _effectiveLast(room).createdAt ?? room.createdAt;
+    return DateTime.tryParse(createdAt)?.millisecondsSinceEpoch ?? 0;
+  }
+
   List<RoomSummary> get _filteredRooms {
     final query = _searchQuery.trim().toLowerCase();
-    if (query.isEmpty) return _rooms;
-    return _rooms
-        .where((room) => _roomLabel(room).toLowerCase().contains(query))
-        .toList();
+    final rooms = query.isEmpty
+        ? [..._rooms]
+        : _rooms
+            .where((room) => _roomLabel(room).toLowerCase().contains(query))
+            .toList();
+    rooms.sort((a, b) {
+      final diff =
+          _effectiveActivityTime(b).compareTo(_effectiveActivityTime(a));
+      if (diff != 0) return diff;
+      return a.id.compareTo(b.id);
+    });
+    return rooms;
   }
 
   String _roomLabel(RoomSummary room) {
@@ -179,7 +284,7 @@ class _SendsarConversationListState extends State<SendsarConversationList> {
     );
     return inboxSubtitleForPeer(
           typingLabel: typingLabel.isEmpty ? null : typingLabel,
-          lastMessagePreview: room.lastMessage?.previewText,
+          lastMessagePreview: _effectiveLast(room).preview,
         ) ??
         '';
   }
@@ -290,7 +395,8 @@ class _SendsarConversationListState extends State<SendsarConversationList> {
                                                 child: Text(
                                                   label,
                                                   maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
                                                   style: TextStyle(
                                                     fontWeight: FontWeight.w600,
                                                     color: theme.textPrimary,
@@ -306,7 +412,8 @@ class _SendsarConversationListState extends State<SendsarConversationList> {
                                               ],
                                               Text(
                                                 formatRelativeTime(
-                                                  room.lastMessage?.createdAt ??
+                                                  _effectiveLast(room)
+                                                          .createdAt ??
                                                       room.createdAt,
                                                 ),
                                                 style: theme.subtitleStyle,

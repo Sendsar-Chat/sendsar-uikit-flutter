@@ -66,6 +66,7 @@ Revert with `npm run use:pub-sdk`. See [PUBLISHING.md](PUBLISHING.md) for pub.de
 | **Unread badges** | Count on conversation rows |
 | **Edit / delete** | Long-press your message → action sheet |
 | **Pagination** | “Load older messages” in thread |
+| **Fast conversation switch** | In-memory thread cache — revisited rooms open without a loading flash |
 | **Dark mode** | Follows system / `MaterialApp` theme |
 
 ## Integrate in your app
@@ -106,7 +107,7 @@ See the [Flutter chat SDK docs](https://docs.sendsar.com/sdk/flutter/) for sessi
 |--------|-------------|
 | `SendsarChatShell` | Inbox + thread, typing, presence, responsive layout |
 | `SendsarConversationList` | Rooms, search, unread badges, avatars |
-| `SendsarMessageList` | Live messages, cached media, reactions, receipts |
+| `SendsarMessageList` | Live messages, cached threads + media, reactions, receipts |
 | `SendsarComposer` | Bordered input + toolbar (emoji, attach, send) |
 | `SendsarRoomInfo` | Room details sidebar (bottom sheet on mobile) |
 

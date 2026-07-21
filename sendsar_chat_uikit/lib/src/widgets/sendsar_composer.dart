@@ -9,7 +9,6 @@ import 'package:uuid/uuid.dart';
 import '../services/sendsar_chat_service.dart';
 import '../services/sendsar_session_service.dart';
 import '../theme/sendsar_chat_theme.dart';
-import '../utils/composer_typing_controller.dart';
 
 const _emojiGroups = [
   (
@@ -79,7 +78,8 @@ class _SendsarComposerState extends State<SendsarComposer> {
       _typingController = null;
       return;
     }
-    _typingController = ComposerTypingController(client, widget.roomId);
+    _typingController =
+        ComposerTypingController(_ClientTypingAdapter(client), widget.roomId);
   }
 
   void _onTextChanged(String value) {
@@ -357,4 +357,17 @@ class _SendButton extends StatelessWidget {
 
 extension _FirstOrNull<E> on List<E> {
   E? get firstOrNull => isEmpty ? null : first;
+}
+
+/// Bridges [SendsarClient] to the SDK's [ComposerTypingClient] interface.
+class _ClientTypingAdapter implements ComposerTypingClient {
+  _ClientTypingAdapter(this._client);
+
+  final SendsarClient _client;
+
+  @override
+  bool get isConnected => _client.isConnected;
+
+  @override
+  void setTyping(TypingParams params) => _client.setTyping(params);
 }

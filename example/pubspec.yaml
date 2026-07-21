@@ -4,14 +4,14 @@ publish_to: none
 version: 0.1.0
 
 environment:
-  sdk: ^3.5.0
-  flutter: ">=3.24.0"
+  sdk: ^3.6.0
+  flutter: ">=3.27.0"
 
 dependencies:
   flutter:
     sdk: flutter
   http: ^1.2.2
-  sendsar_chat: ^0.1.0
+  sendsar_chat: ^0.2.0
   sendsar_chat_uikit:
     path: ../sendsar_chat_uikit
 

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -10,8 +8,11 @@ import '../services/sendsar_chat_service.dart';
 import '../services/sendsar_session_service.dart';
 import '../theme/sendsar_chat_theme.dart';
 import '../theme/sendsar_styles.dart';
+import '../utils/format_time.dart';
 import '../utils/message_parts.dart';
+import '../utils/room_thread_cache.dart';
 import '../utils/user_directory.dart';
+import 'sendsar_call_log_bubble.dart';
 import 'sendsar_message_text.dart';
 
 const _quickReactions = ['👍', '❤️', '😂', '🎉'];
@@ -26,6 +27,7 @@ class SendsarMessageList extends StatefulWidget {
     this.onActivity,
     this.style,
     this.bubbleBuilder,
+    this.onCallRedial,
   });
 
   final String roomId;
@@ -35,6 +37,9 @@ class SendsarMessageList extends StatefulWidget {
   final VoidCallback? onActivity;
   final SendsarMessageListStyle? style;
   final SendsarMessageBubbleBuilder? bubbleBuilder;
+
+  /// Called when a call-log bubble is tapped (redial with the same type).
+  final void Function(CallType type)? onCallRedial;
 
   @override
   State<SendsarMessageList> createState() => _SendsarMessageListState();
@@ -76,10 +81,22 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
 
   void _bindRoom() {
     _subscription?.destroy();
+
+    final roomId = widget.roomId;
+    final cached = roomId.isNotEmpty ? getCachedRoomThread(roomId) : null;
+
     setState(() {
-      _messages = <Message>[];
-      _nextCursor = null;
-      _peerLastReadAt = null;
+      if (cached != null) {
+        _messages = cached.messages;
+        _nextCursor = cached.nextCursor;
+        _peerLastReadAt = cached.peerLastReadAt;
+        _loading = false;
+      } else {
+        _messages = <Message>[];
+        _nextCursor = null;
+        _peerLastReadAt = null;
+        _loading = true;
+      }
       _error = null;
       _editingId = null;
       _editController.clear();
@@ -88,67 +105,83 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
     final session = context.read<SendsarSessionService>();
     final client = session.client;
     final userId = session.session?.chatUserId;
-    if (client == null || userId == null || widget.roomId.isEmpty) return;
-
-    setState(() => _loading = true);
-
-  final chat = context.read<SendsarChatService>();
-    unawaited(
-      chat.getMessages(widget.roomId, const ListMessagesParams(limit: 50)).then(
-        (result) {
-          if (!mounted) return;
-          setState(() => _nextCursor = result.nextCursor);
-        },
-      ).catchError((_) {}),
-    );
+    if (client == null || userId == null || roomId.isEmpty) return;
 
     _subscription = createRoomSubscription(
       client,
       RoomSubscriptionOptions(
-        roomId: widget.roomId,
+        roomId: roomId,
         userId: userId,
-        onInitialMessages: (msgs, peerLastReadAt) {
-        if (!mounted) return;
-        setState(() {
-          _messages = msgs;
-          _peerLastReadAt = peerLastReadAt;
-          _loading = false;
-        });
-        _scrollToBottom();
-      },
-      onMessage: (msg) {
-        if (!mounted) return;
-        setState(() {
-          _messages = _mergeMessages(_messages, [msg]);
-        });
-        widget.onActivity?.call();
-        _scrollToBottom();
-      },
-      onMessageUpdated: (msg) {
-        if (!mounted) return;
-        setState(() {
-          _messages = _messages
-              .map((m) => m.id == msg.id ? msg : m)
-              .toList(growable: false);
-        });
-        widget.onActivity?.call();
-      },
-      onPeerLastReadAt: (lastReadAt) {
-        if (!mounted) return;
-        setState(() => _peerLastReadAt = lastReadAt);
-      },
+        onInitialMessages: (msgs, peerLastReadAt, [nextCursor]) {
+          if (!mounted || widget.roomId != roomId) return;
+          setState(() {
+            _messages = _mergeMessages(_messages, msgs);
+            _peerLastReadAt = peerLastReadAt;
+            _nextCursor ??= nextCursor;
+            _loading = false;
+          });
+          _persistThreadCache();
+          if (cached == null) {
+            _scrollToBottom(animate: true);
+          }
+        },
+        onMessage: (msg) {
+          if (!mounted || widget.roomId != roomId) return;
+          setState(() {
+            _messages = _mergeMessages(_messages, [msg]);
+          });
+          _persistThreadCache();
+          widget.onActivity?.call();
+          _scrollToBottom();
+        },
+        onMessageUpdated: (msg) {
+          if (!mounted || widget.roomId != roomId) return;
+          setState(() {
+            _messages = _messages
+                .map((m) => m.id == msg.id ? msg : m)
+                .toList(growable: false);
+          });
+          _persistThreadCache();
+          widget.onActivity?.call();
+        },
+        onPeerLastReadAt: (lastReadAt) {
+          if (!mounted || widget.roomId != roomId) return;
+          setState(() => _peerLastReadAt = lastReadAt);
+          _persistThreadCache();
+        },
+      ),
+    );
+
+    if (cached != null) {
+      _scrollToBottom(animate: false);
+    }
+  }
+
+  void _persistThreadCache() {
+    if (widget.roomId.isEmpty) return;
+    setCachedRoomThread(
+      widget.roomId,
+      CachedRoomThread(
+        messages: _messages,
+        nextCursor: _nextCursor,
+        peerLastReadAt: _peerLastReadAt,
       ),
     );
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool animate = true}) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
+      final target = _scrollController.position.maxScrollExtent;
+      if (animate) {
+        _scrollController.animateTo(
+          target,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      } else {
+        _scrollController.jumpTo(target);
+      }
     });
   }
 
@@ -162,6 +195,7 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
       message,
       deletedPlaceholder:
           widget.chatSettings?.deletedMessagePlaceholder ?? 'Message deleted',
+      selfUserId: context.read<SendsarSessionService>().session?.chatUserId,
     );
   }
 
@@ -186,6 +220,7 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
         _messages = _mergeMessages(chronological, _messages);
         _nextCursor = result.nextCursor;
       });
+      _persistThreadCache();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!_scrollController.hasClients) return;
         final newHeight = _scrollController.position.maxScrollExtent;
@@ -321,6 +356,23 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
                       final msgIndex = _nextCursor != null ? index - 1 : index;
                       final message = _messages[msgIndex];
                       final isSelf = _isSelf(message);
+                      final callLog = message.deletedAt == null
+                          ? parseCallLogPart(message.parts)
+                          : null;
+                      if (callLog != null) {
+                        final selfUserId = context
+                                .read<SendsarSessionService>()
+                                .session
+                                ?.chatUserId ??
+                            '';
+                        return _CallLogRow(
+                          theme: theme,
+                          data: callLog,
+                          selfUserId: selfUserId,
+                          createdAt: message.createdAt,
+                          onRedial: widget.onCallRedial,
+                        );
+                      }
                       final editing = _editingId == message.id;
                       final defaultBubble = _MessageBubble(
                         theme: theme,
@@ -372,6 +424,47 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
                       return defaultBubble;
                     },
                   ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CallLogRow extends StatelessWidget {
+  const _CallLogRow({
+    required this.theme,
+    required this.data,
+    required this.selfUserId,
+    required this.createdAt,
+    this.onRedial,
+  });
+
+  final SendsarChatTheme theme;
+  final CallLogData data;
+  final String selfUserId;
+  final String createdAt;
+  final void Function(CallType type)? onRedial;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        children: [
+          Center(
+            child: SendsarCallLogBubble(
+              data: data,
+              selfUserId: selfUserId,
+              onRedial: onRedial,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Text(
+              formatMessageTime(createdAt),
+              style: TextStyle(fontSize: 11, color: theme.textMuted),
+            ),
           ),
         ],
       ),

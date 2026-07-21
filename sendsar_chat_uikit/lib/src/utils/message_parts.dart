@@ -12,9 +12,14 @@ bool isImagePart(MessagePart part) {
 String messagePreview(
   Message message, {
   String deletedPlaceholder = 'Message deleted',
+  String? selfUserId,
 }) {
   if (message.deletedHidden == true) return '';
   if (message.deletedAt != null) return deletedPlaceholder;
+  final callLog = parseCallLogPart(message.parts);
+  if (callLog != null) {
+    return formatCallLogPreview(callLog, selfUserId);
+  }
   final text = textFromMessageParts(message.parts);
   if (text.isNotEmpty) return text;
   if (fileParts(message.parts).isNotEmpty) return 'Attachment';

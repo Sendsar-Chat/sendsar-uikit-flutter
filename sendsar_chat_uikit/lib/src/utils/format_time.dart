@@ -28,3 +28,13 @@ String formatRelativeTime(String? iso) {
   ];
   return '${months[then.month - 1]} ${then.day}';
 }
+
+/// Local `HH:mm` clock time for in-thread rows (e.g. call logs).
+String formatMessageTime(String? iso) {
+  if (iso == null || iso.isEmpty) return '';
+  final then = DateTime.tryParse(iso)?.toLocal();
+  if (then == null) return '';
+  final hh = then.hour.toString().padLeft(2, '0');
+  final mm = then.minute.toString().padLeft(2, '0');
+  return '$hh:$mm';
+}

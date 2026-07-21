@@ -4,14 +4,19 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:sendsar_chat/sendsar_chat.dart';
 
+import '../services/sendsar_call_service.dart';
 import '../services/sendsar_session_service.dart';
 import '../theme/sendsar_chat_theme.dart';
 import '../theme/sendsar_styles.dart';
+import '../utils/message_parts.dart';
 import '../utils/room_label.dart';
 import '../utils/user_directory.dart';
+import 'sendsar_call_overlay.dart';
+import 'sendsar_call_screen.dart';
 import 'sendsar_composer.dart';
 import 'sendsar_conversation_list.dart';
 import 'sendsar_message_list.dart';
+import 'sendsar_ongoing_call_bar.dart';
 import 'sendsar_room_info.dart';
 
 class SendsarChatShell extends StatefulWidget {
@@ -47,6 +52,9 @@ class SendsarChatShellState extends State<SendsarChatShell> {
   TenantPresenceTracker? _presenceTracker;
   Timer? _reloadTimer;
   final List<void Function()> _unsubscribers = [];
+  final Map<String, LastMessageOverride> _lastMessageOverrides = {};
+  MaterialPageRoute<void>? _callRoute;
+  bool _isNarrow = false;
 
   SendsarConversationListController get conversationListController =>
       widget.conversationListController ?? _listController;
@@ -101,6 +109,7 @@ class SendsarChatShellState extends State<SendsarChatShell> {
     _unsubscribers.add(
       client.on(SocketEvent.newMessage, (msg) {
         if (msg is! Message || !mounted) return;
+        _recordLastMessage(msg);
         _scheduleSidebarReload();
         final selected = _selectedRoom;
         if (selected != null && msg.roomId != selected.id) {
@@ -123,6 +132,126 @@ class SendsarChatShellState extends State<SendsarChatShell> {
         setState(() => _onlineUserIds = ids);
       }),
     );
+
+    // Create the CallClient early so incoming call invites are received
+    // before the user ever places a call.
+    final calls = context.read<SendsarCallService>();
+    calls.ensureReady();
+
+    // Refresh the sidebar once a call finishes so the call-log message shows
+    // up as the room's latest activity, and keep the full-screen call page
+    // in sync with the call state on mobile.
+    var wasInCall = calls.showCallUi;
+    void onCallsChanged() {
+      final inCall = calls.showCallUi;
+      if (wasInCall && !inCall) {
+        _scheduleSidebarReload();
+      }
+      wasInCall = inCall;
+      _syncCallPage(calls);
+    }
+
+    calls.addListener(onCallsChanged);
+    _unsubscribers.add(() => calls.removeListener(onCallsChanged));
+  }
+
+  /// On narrow (mobile) layouts the call UI is a pushed full-screen page,
+  /// Telegram-style: open while the call is foregrounded, popped when it is
+  /// minimized to the ongoing-call bar or ends.
+  void _syncCallPage(SendsarCallService calls) {
+    if (!mounted) return;
+    final wantOpen = _isNarrow && calls.showCallUi && !calls.minimized;
+    final route = _callRoute;
+
+    if (wantOpen && route == null) {
+      final newRoute = MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => SendsarCallScreen(
+          title: _callOverlayTitle(calls),
+          avatarUrl: _callOverlayAvatarUrl(calls),
+          calls: calls,
+        ),
+      );
+      _callRoute = newRoute;
+      unawaited(
+        Navigator.of(context, rootNavigator: true)
+            .push(newRoute)
+            .whenComplete(() {
+          if (_callRoute == newRoute) _callRoute = null;
+        }),
+      );
+      return;
+    }
+
+    if (!wantOpen && route != null) {
+      _callRoute = null;
+      if (route.isCurrent) {
+        route.navigator?.pop();
+      } else if (route.isActive) {
+        route.navigator?.removeRoute(route);
+      }
+    }
+  }
+
+  void _recordLastMessage(Message msg) {
+    final selfUserId =
+        context.read<SendsarSessionService>().session?.chatUserId;
+    final preview = messagePreview(msg, selfUserId: selfUserId);
+    if (preview.isEmpty) return;
+    setState(() {
+      _lastMessageOverrides[msg.roomId] =
+          (preview: preview, createdAt: msg.createdAt);
+    });
+  }
+
+  Future<void> _startCall(CallType type) async {
+    final room = _selectedRoom;
+    if (room == null) return;
+    final calls = context.read<SendsarCallService>();
+    if (calls.showCallUi) return;
+    try {
+      await calls.startCallOfType(room.id, type);
+    } catch (_) {
+      // Error surfaced in the call overlay via calls.error.
+    }
+  }
+
+  void _onCallRedial(CallType type) {
+    final calls = context.read<SendsarCallService>();
+    if (calls.showCallUi) return;
+    unawaited(_startCall(type));
+  }
+
+  String _callOverlayTitle(SendsarCallService calls) {
+    final userMap = userDirectoryMap(widget.users);
+    final invite = calls.incomingInvite;
+    if (invite != null) {
+      return displayNameFor(invite.createdByUserId, userMap);
+    }
+
+    final callRoomId = calls.activeCall?.roomId;
+    final room = _selectedRoom;
+    if (room != null && (callRoomId == null || callRoomId == room.id)) {
+      return _roomTitle();
+    }
+    return 'Call';
+  }
+
+  String? _callOverlayAvatarUrl(SendsarCallService calls) {
+    final userMap = userDirectoryMap(widget.users);
+    final invite = calls.incomingInvite;
+    if (invite != null) {
+      return userMap[invite.createdByUserId]?.avatarUrl;
+    }
+
+    final room = _selectedRoom;
+    final selfId =
+        context.read<SendsarSessionService>().session?.chatUserId ?? '';
+    if (room != null && isDirectMessage(room)) {
+      final peerId = parseDmPeerId(room.externalId, selfId);
+      if (peerId != null) return userMap[peerId]?.avatarUrl;
+    }
+    return null;
   }
 
   void _scheduleSidebarReload() {
@@ -143,7 +272,8 @@ class SendsarChatShellState extends State<SendsarChatShell> {
   Future<void> openRoom(String roomId, {String? title}) async {
     final session = context.read<SendsarSessionService>();
     final deadline = DateTime.now().add(const Duration(seconds: 15));
-    while (session.state.status == 'loading' && DateTime.now().isBefore(deadline)) {
+    while (session.state.status == 'loading' &&
+        DateTime.now().isBefore(deadline)) {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
     if (!session.isReady) return;
@@ -263,12 +393,15 @@ class SendsarChatShellState extends State<SendsarChatShell> {
   @override
   Widget build(BuildContext context) {
     final session = context.watch<SendsarSessionService>();
+    final calls = context.watch<SendsarCallService>();
     final theme = context.sendsarTheme;
     final status = session.state.status;
     final selfUserId = session.session?.chatUserId ?? '';
     final selected = _selectedRoom;
     final width = MediaQuery.sizeOf(context).width;
     final isNarrow = width < 720;
+    _isNarrow = isNarrow;
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncCallPage(calls));
 
     if (status == 'error') {
       return Center(
@@ -294,94 +427,123 @@ class SendsarChatShellState extends State<SendsarChatShell> {
       decoration: theme.shellDecoration,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
-        child: Stack(
+        child: Column(
           children: [
-            if (status == 'loading')
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: _ConnectingBar(theme: theme),
-              ),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final showSidebar = !isNarrow || !_mobileShowThread;
-                final showThread = !isNarrow || _mobileShowThread;
-                final showInfo = _showInfoPanel && (!isNarrow || _mobileShowThread);
+            if (isNarrow && calls.showCallUi && calls.minimized)
+              SendsarOngoingCallBar(calls: calls),
+            Expanded(
+              child: Stack(
+                children: [
+                  if (status == 'loading')
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: _ConnectingBar(theme: theme),
+                    ),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final showSidebar = !isNarrow || !_mobileShowThread;
+                      final showThread = !isNarrow || _mobileShowThread;
+                      final showInfo =
+                          _showInfoPanel && (!isNarrow || _mobileShowThread);
 
-                return SizedBox(
-                  height: constraints.maxHeight,
-                  child: Row(
-                    children: [
-                      if (showSidebar)
-                        SizedBox(
-                          width: isNarrow ? constraints.maxWidth : 280,
-                          child: SendsarConversationList(
-                            controller: conversationListController,
-                            selectedRoomId: selected?.id,
-                            users: widget.users,
-                            selfUserId: selfUserId,
-                            typingByRoom: _typingByRoom,
-                            onlineUserIds: _onlineUserIds,
-                            onRoomSelect: _onRoomSelect,
-                            style: widget.conversationListStyle,
-                            itemBuilder: widget.conversationItemBuilder,
-                          ),
-                        ),
-                      if (showSidebar && showThread)
-                        VerticalDivider(width: 1, color: theme.border),
-                      if (showThread)
-                        Expanded(
-                          child: selected == null
-                              ? const _ThreadEmpty()
-                              : Column(
-                                  children: [
-                                    _ThreadHeader(
-                                      theme: theme,
-                                      title: _roomTitle(),
-                                      subtitle: _headerSubtitle(),
-                                      typing: _typingLabel().isNotEmpty,
-                                      showBack: isNarrow,
-                                      onBack: () =>
-                                          setState(() => _mobileShowThread = false),
-                                      onInfo: () => _openRoomInfo(context, isNarrow),
-                                    ),
-                                    Expanded(
-                                      child: SendsarMessageList(
-                                        roomId: selected.id,
-                                        isGroup: _roomIsGroup(),
-                                        users: widget.users,
-                                        chatSettings: session.session?.chatSettings,
-                                        onActivity: _scheduleSidebarReload,
-                                        style: widget.messageListStyle,
-                                        bubbleBuilder: widget.messageBubbleBuilder,
-                                      ),
-                                    ),
-                                    SendsarComposer(
-                                      roomId: selected.id,
-                                      onSent: _scheduleSidebarReload,
-                                    ),
-                                  ],
+                      return SizedBox(
+                        height: constraints.maxHeight,
+                        child: Row(
+                          children: [
+                            if (showSidebar)
+                              SizedBox(
+                                width: isNarrow ? constraints.maxWidth : 280,
+                                child: SendsarConversationList(
+                                  controller: conversationListController,
+                                  selectedRoomId: selected?.id,
+                                  users: widget.users,
+                                  selfUserId: selfUserId,
+                                  typingByRoom: _typingByRoom,
+                                  onlineUserIds: _onlineUserIds,
+                                  onRoomSelect: _onRoomSelect,
+                                  style: widget.conversationListStyle,
+                                  itemBuilder: widget.conversationItemBuilder,
+                                  lastMessageOverrides: _lastMessageOverrides,
                                 ),
+                              ),
+                            if (showSidebar && showThread)
+                              VerticalDivider(width: 1, color: theme.border),
+                            if (showThread)
+                              Expanded(
+                                child: selected == null
+                                    ? const _ThreadEmpty()
+                                    : Column(
+                                        children: [
+                                          _ThreadHeader(
+                                            theme: theme,
+                                            title: _roomTitle(),
+                                            subtitle: _headerSubtitle(),
+                                            typing: _typingLabel().isNotEmpty,
+                                            showBack: isNarrow,
+                                            onBack: () => setState(() =>
+                                                _mobileShowThread = false),
+                                            onInfo: () => _openRoomInfo(
+                                                context, isNarrow),
+                                            onAudioCall: calls.showCallUi
+                                                ? null
+                                                : () => unawaited(
+                                                    _startCall('audio')),
+                                            onVideoCall: calls.showCallUi
+                                                ? null
+                                                : () => unawaited(
+                                                    _startCall('video')),
+                                          ),
+                                          Expanded(
+                                            child: SendsarMessageList(
+                                              roomId: selected.id,
+                                              isGroup: _roomIsGroup(),
+                                              users: widget.users,
+                                              chatSettings:
+                                                  session.session?.chatSettings,
+                                              onActivity:
+                                                  _scheduleSidebarReload,
+                                              style: widget.messageListStyle,
+                                              bubbleBuilder:
+                                                  widget.messageBubbleBuilder,
+                                              onCallRedial: _onCallRedial,
+                                            ),
+                                          ),
+                                          SendsarComposer(
+                                            roomId: selected.id,
+                                            onSent: _scheduleSidebarReload,
+                                          ),
+                                        ],
+                                      ),
+                              ),
+                            if (showInfo && selected != null && !isNarrow)
+                              VerticalDivider(width: 1, color: theme.border),
+                            if (showInfo && selected != null && !isNarrow)
+                              SizedBox(
+                                width: 260,
+                                child: SendsarRoomInfo(
+                                  room: selected,
+                                  users: widget.users,
+                                  selfUserId: selfUserId,
+                                  onlineUserIds: _onlineUserIds,
+                                  title: _roomTitle(),
+                                  onClose: () =>
+                                      setState(() => _showInfoPanel = false),
+                                ),
+                              ),
+                          ],
                         ),
-                      if (showInfo && selected != null && !isNarrow)
-                        VerticalDivider(width: 1, color: theme.border),
-                      if (showInfo && selected != null && !isNarrow)
-                        SizedBox(
-                          width: 260,
-                          child: SendsarRoomInfo(
-                            room: selected,
-                            users: widget.users,
-                            selfUserId: selfUserId,
-                            onlineUserIds: _onlineUserIds,
-                            title: _roomTitle(),
-                            onClose: () => setState(() => _showInfoPanel = false),
-                          ),
-                        ),
-                    ],
+                      );
+                    },
                   ),
-                );
-              },
+                  if (calls.showCallUi && !isNarrow)
+                    SendsarCallOverlay(
+                      title: _callOverlayTitle(calls),
+                      avatarUrl: _callOverlayAvatarUrl(calls),
+                    ),
+                ],
+              ),
             ),
           ],
         ),
@@ -415,7 +577,8 @@ class _ConnectingBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Text('Connecting to Sendsar…', style: TextStyle(color: theme.textSecondary)),
+          Text('Connecting to Sendsar…',
+              style: TextStyle(color: theme.textSecondary)),
         ],
       ),
     );
@@ -457,6 +620,8 @@ class _ThreadHeader extends StatelessWidget {
     required this.showBack,
     required this.onBack,
     required this.onInfo,
+    this.onAudioCall,
+    this.onVideoCall,
   });
 
   final SendsarChatTheme theme;
@@ -466,6 +631,8 @@ class _ThreadHeader extends StatelessWidget {
   final bool showBack;
   final VoidCallback onBack;
   final VoidCallback onInfo;
+  final VoidCallback? onAudioCall;
+  final VoidCallback? onVideoCall;
 
   @override
   Widget build(BuildContext context) {
@@ -494,7 +661,10 @@ class _ThreadHeader extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: theme.titleStyle, maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(title,
+                    style: theme.titleStyle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis),
                 Text(
                   subtitle,
                   style: typing ? theme.typingStyle : theme.subtitleStyle,
@@ -515,14 +685,16 @@ class _ThreadHeader extends StatelessWidget {
             visualDensity: VisualDensity.compact,
             padding: const EdgeInsets.all(8),
             constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-            onPressed: () {},
+            tooltip: 'Voice call',
+            onPressed: onAudioCall,
             icon: const Icon(Icons.call, size: 22),
           ),
           IconButton(
             visualDensity: VisualDensity.compact,
             padding: const EdgeInsets.all(8),
             constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-            onPressed: () {},
+            tooltip: 'Video call',
+            onPressed: onVideoCall,
             icon: const Icon(Icons.videocam, size: 22),
           ),
           IconButton(

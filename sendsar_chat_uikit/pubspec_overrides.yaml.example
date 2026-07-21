@@ -3,3 +3,5 @@
 dependency_overrides:
   sendsar_chat:
     path: ../../sendsar-monorepo/packages/chat-sdk-flutter
+  sendsar_call:
+    path: ../../sendsar-monorepo/packages/call-sdk-flutter

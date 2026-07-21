@@ -1,3 +1,9 @@
+## 0.2.1
+
+### UX
+- Message list caches threads in memory when switching conversations (no loading flash on revisit).
+- Uses `createRoomSubscription` `nextCursor` — one history fetch per open (requires `sendsar_chat` ≥ 0.1.3).
+
 ## 0.2.0
 
 ### Features
