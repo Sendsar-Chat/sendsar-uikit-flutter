@@ -6,8 +6,8 @@ Ready-to-use chat UI for Flutter — built on [`sendsar_chat`](https://pub.dev/p
 
 ```yaml
 dependencies:
-  sendsar_chat_uikit: ^0.3.0
-  sendsar_chat: ^0.2.0
+  sendsar_chat_uikit: ^0.6.0
+  sendsar_chat: ^0.6.0
 ```
 
 ## Quick start
@@ -32,6 +32,17 @@ Register theme extensions on `MaterialApp` for light/dark support:
 ```dart
 extensions: const [SendsarChatTheme.light],  // or .dark in darkTheme
 ```
+
+## Message actions
+
+The message list ships with a Telegram-style long-press action sheet: quick
+emoji reactions, **Pin/Unpin** and **Forward** (any non-deleted message,
+with a built-in room picker), and **Edit** / **Delete** for your own messages.
+Pinned messages show a pin icon; forwarded messages show a "Forwarded from …" label.
+
+Conversation list and room info expose **Leave group** / **Delete chat** and **Clear
+history** (SDK `deleteConversation` / `clearHistory`). Group membership changes
+appear as centered system lines; the member list refreshes live.
 
 ## Calls
 

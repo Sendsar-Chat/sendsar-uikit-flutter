@@ -654,21 +654,21 @@ packages:
       path: "../../sendsar-monorepo/packages/call-sdk-flutter"
       relative: true
     source: path
-    version: "0.2.0"
+    version: "0.2.1"
   sendsar_chat:
     dependency: "direct main"
     description:
       path: "../../sendsar-monorepo/packages/chat-sdk-flutter"
       relative: true
     source: path
-    version: "0.2.0"
+    version: "0.3.0"
   sendsar_chat_uikit:
     dependency: "direct main"
     description:
       path: "../sendsar_chat_uikit"
       relative: true
     source: path
-    version: "0.3.0"
+    version: "0.4.0"
   sky_engine:
     dependency: transitive
     description: flutter

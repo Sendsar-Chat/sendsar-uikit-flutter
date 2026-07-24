@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:sendsar_chat/sendsar_chat.dart';
@@ -83,6 +85,8 @@ class SendsarConversationList extends StatefulWidget {
     required this.typingByRoom,
     required this.onlineUserIds,
     required this.onRoomSelect,
+    this.onRoomDeleted,
+    this.onHistoryCleared,
     this.controller,
     this.style,
     this.itemBuilder,
@@ -95,6 +99,8 @@ class SendsarConversationList extends StatefulWidget {
   final TypingByRoom typingByRoom;
   final Set<String> onlineUserIds;
   final ValueChanged<RoomSummary> onRoomSelect;
+  final ValueChanged<String>? onRoomDeleted;
+  final ValueChanged<String>? onHistoryCleared;
   final SendsarConversationListController? controller;
   final SendsarConversationListStyle? style;
   final SendsarConversationItemBuilder? itemBuilder;
@@ -418,6 +424,35 @@ class _SendsarConversationListState extends State<SendsarConversationList> {
                                                 ),
                                                 style: theme.subtitleStyle,
                                               ),
+                                              PopupMenuButton<String>(
+                                                padding: EdgeInsets.zero,
+                                                iconSize: 18,
+                                                onSelected: (value) {
+                                                  if (value == 'clear') {
+                                                    unawaited(
+                                                      _clearHistory(room),
+                                                    );
+                                                  } else if (value == 'delete') {
+                                                    unawaited(
+                                                      _deleteConversation(room),
+                                                    );
+                                                  }
+                                                },
+                                                itemBuilder: (ctx) => [
+                                                  const PopupMenuItem(
+                                                    value: 'clear',
+                                                    child: Text('Clear history'),
+                                                  ),
+                                                  PopupMenuItem(
+                                                    value: 'delete',
+                                                    child: Text(
+                                                      isGroupRoom(room)
+                                                          ? 'Leave & delete'
+                                                          : 'Delete chat',
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
                                             ],
                                           ),
                                           const SizedBox(height: 2),
@@ -458,6 +493,70 @@ class _SendsarConversationListState extends State<SendsarConversationList> {
         : context.read<SendsarSessionService>().session?.chatUserId ?? '';
     final peerId = parseDmPeerId(room.externalId, selfId);
     return peerId != null && widget.onlineUserIds.contains(peerId);
+  }
+
+  Future<void> _clearHistory(RoomSummary room) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Clear history'),
+        content: const Text(
+          'Clear history? Messages will be removed from your view only. Others keep their copy.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Clear')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await context.read<SendsarChatService>().clearHistory(room.id);
+      if (!mounted) return;
+      setState(() {
+        _backfill.remove(room.id);
+      });
+      widget.onHistoryCleared?.call(room.id);
+      await reload();
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    }
+  }
+
+  Future<void> _deleteConversation(RoomSummary room) async {
+    final isGroup = isGroupRoom(room);
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(isGroup ? 'Leave group' : 'Delete chat'),
+        content: Text(
+          isGroup
+              ? 'Leave and delete this group chat? You will leave the group.'
+              : 'Delete this chat? It disappears from your list. New messages will show it again.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(isGroup ? 'Leave' : 'Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await context.read<SendsarChatService>().deleteConversation(room.id);
+      if (!mounted) return;
+      setState(() {
+        _rooms = _rooms.where((r) => r.id != room.id).toList();
+        _backfill.remove(room.id);
+      });
+      widget.onRoomDeleted?.call(room.id);
+    } catch (err) {
+      if (!mounted) return;
+      setState(() => _error = err.toString());
+    }
   }
 }
 

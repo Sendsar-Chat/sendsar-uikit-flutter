@@ -22,6 +22,24 @@ class SendsarChatService {
   ]) =>
       requireClient().listRooms(params);
 
+  Future<RoomDetail> getRoom(String roomId) => requireClient().getRoom(roomId);
+
+  Future<RoomDetail> addParticipant(String roomId, AddParticipantParams params) =>
+      requireClient().addParticipant(roomId, params);
+
+  Future<RoomDetail> removeParticipant(
+    String roomId,
+    String userId, [
+    RemoveParticipantParams params = const RemoveParticipantParams(),
+  ]) =>
+      requireClient().removeParticipant(roomId, userId, params);
+
+  Future<DeleteConversationResult> deleteConversation(String roomId) =>
+      requireClient().deleteConversation(roomId);
+
+  Future<ClearHistoryResult> clearHistory(String roomId) =>
+      requireClient().clearHistory(roomId);
+
   Future<MessagesResponse> getMessages(
     String roomId, [
     ListMessagesParams params = const ListMessagesParams(),
@@ -47,6 +65,26 @@ class SendsarChatService {
     ToggleReactionParams params,
   ) =>
       requireClient().toggleReaction(roomId, messageId, params);
+
+  Future<Message> pinMessage(String roomId, String messageId) =>
+      requireClient().pinMessage(roomId, messageId);
+
+  Future<Message> unpinMessage(String roomId, String messageId) =>
+      requireClient().unpinMessage(roomId, messageId);
+
+  Future<List<Message>> getPinnedMessages(String roomId) =>
+      requireClient().getPinnedMessages(roomId);
+
+  Future<List<Message>> forwardMessage(
+    String roomId,
+    String messageId,
+    List<String> targetRoomIds,
+  ) =>
+      requireClient().forwardMessage(
+        roomId,
+        messageId,
+        ForwardMessageParams(targetRoomIds: targetRoomIds),
+      );
 
   Future<Message> sendFileMessage(
     String roomId, {

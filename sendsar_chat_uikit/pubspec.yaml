@@ -1,6 +1,6 @@
 name: sendsar_chat_uikit
 description: Ready-to-use chat UI for Flutter — built on sendsar_chat.
-version: 0.3.0
+version: 0.6.0
 homepage: https://github.com/Sendsar-Chat/sendsar-uikit-flutter
 repository: https://github.com/Sendsar-Chat/sendsar-uikit-flutter
 issue_tracker: https://github.com/Sendsar-Chat/sendsar-uikit-flutter/issues
@@ -22,7 +22,7 @@ dependencies:
   characters: ^1.4.0
   audioplayers: ^6.1.0
   livekit_client: ^2.8.1
-  sendsar_chat: ^0.2.0
+  sendsar_chat: ^0.6.0
   sendsar_call: ^0.2.0
 
 dev_dependencies:

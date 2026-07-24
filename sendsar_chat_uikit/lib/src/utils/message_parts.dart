@@ -20,6 +20,10 @@ String messagePreview(
   if (callLog != null) {
     return formatCallLogPreview(callLog, selfUserId);
   }
+  final membership = parseMembershipPart(message.parts);
+  if (membership != null) {
+    return formatMembershipPreview(membership);
+  }
   final text = textFromMessageParts(message.parts);
   if (text.isNotEmpty) return text;
   if (fileParts(message.parts).isNotEmpty) return 'Attachment';

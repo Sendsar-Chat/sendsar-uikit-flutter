@@ -1,3 +1,12 @@
+## 0.4.0
+
+### Features
+- **Pin and forward messages** (requires `sendsar_chat` ^0.3.0):
+  - Long-press action sheet gains **Pin/Unpin** and **Forward** for any non-deleted message.
+  - Forward opens a room-picker bottom sheet (rooms from `listRooms`, current room excluded).
+  - Pinned messages show a pin icon beside the bubble; forwarded messages show a "Forwarded" label inside the bubble.
+  - `SendsarChatService`: new `pinMessage`, `unpinMessage`, `getPinnedMessages`, `forwardMessage` wrappers.
+
 ## 0.3.0
 
 ### Features

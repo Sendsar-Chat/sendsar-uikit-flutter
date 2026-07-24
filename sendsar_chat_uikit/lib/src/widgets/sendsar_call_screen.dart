@@ -5,6 +5,7 @@ import 'package:sendsar_call/sendsar_call.dart';
 
 import '../services/sendsar_call_service.dart';
 import 'call_ui_shared.dart';
+import 'sendsar_call_participant_grid.dart';
 
 /// Full-screen call page for mobile — Telegram-style: remote video (or a
 /// large avatar) fills the screen, controls at the bottom, and a minimize
@@ -17,11 +18,15 @@ class SendsarCallScreen extends StatelessWidget {
     super.key,
     required this.title,
     this.avatarUrl,
+    this.isGroup = false,
+    this.labelForIdentity,
     this.calls,
   });
 
   final String title;
   final String? avatarUrl;
+  final bool isGroup;
+  final String Function(String identity)? labelForIdentity;
 
   /// Explicit service instance; falls back to `context.watch`.
   final SendsarCallService? calls;
@@ -36,6 +41,8 @@ class SendsarCallScreen extends StatelessWidget {
           calls: explicit,
           title: title,
           avatarUrl: avatarUrl,
+          isGroup: isGroup,
+          labelForIdentity: labelForIdentity,
         ),
       );
     }
@@ -43,6 +50,8 @@ class SendsarCallScreen extends StatelessWidget {
       calls: context.watch<SendsarCallService>(),
       title: title,
       avatarUrl: avatarUrl,
+      isGroup: isGroup,
+      labelForIdentity: labelForIdentity,
     );
   }
 }
@@ -52,11 +61,15 @@ class _CallScreenBody extends StatelessWidget {
     required this.calls,
     required this.title,
     this.avatarUrl,
+    this.isGroup = false,
+    this.labelForIdentity,
   });
 
   final SendsarCallService calls;
   final String title;
   final String? avatarUrl;
+  final bool isGroup;
+  final String Function(String identity)? labelForIdentity;
 
   @override
   Widget build(BuildContext context) {
@@ -65,6 +78,9 @@ class _CallScreenBody extends StatelessWidget {
     final remote = calls.remoteVideoTrack;
     final local = calls.localVideoTrack;
     final error = calls.error;
+    final useGrid = isGroup &&
+        (calls.callState == callStateActive ||
+            calls.callState == callStateConnecting);
 
     return PopScope(
       // Back never leaves the call: it minimizes (refused while incoming).
@@ -77,7 +93,21 @@ class _CallScreenBody extends StatelessWidget {
         body: Stack(
           fit: StackFit.expand,
           children: [
-            if (remote != null)
+            if (useGrid)
+              Positioned.fill(
+                child: SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 56, 8, 140),
+                    child: SendsarCallParticipantGrid(
+                      calls: calls,
+                      roomTitle: title,
+                      labelForIdentity: labelForIdentity,
+                    ),
+                  ),
+                ),
+              )
+            else if (remote != null)
               lk.VideoTrackRenderer(remote)
             else
               DecoratedBox(
@@ -135,8 +165,7 @@ class _CallScreenBody extends StatelessWidget {
                           )
                         else
                           const SizedBox(width: 48),
-                        // Compact header shown when video covers the stage.
-                        if (remote != null)
+                        if (remote != null || useGrid)
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -199,7 +228,7 @@ class _CallScreenBody extends StatelessWidget {
                 ],
               ),
             ),
-            if (local != null)
+            if (!useGrid && local != null)
               Positioned(
                 right: 16,
                 bottom: 128,

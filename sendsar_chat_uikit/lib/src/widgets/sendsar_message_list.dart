@@ -275,6 +275,88 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
     }
   }
 
+  Future<void> _togglePin(Message message) async {
+    try {
+      final chat = context.read<SendsarChatService>();
+      if (message.pinnedAt == null) {
+        await chat.pinMessage(widget.roomId, message.id);
+      } else {
+        await chat.unpinMessage(widget.roomId, message.id);
+      }
+    } catch (err) {
+      if (!mounted) return;
+      setState(() {
+        _error = err is Exception ? err.toString() : 'Failed to pin';
+      });
+    }
+  }
+
+  Future<void> _forwardMessage(Message message) async {
+    final chat = context.read<SendsarChatService>();
+    final List<RoomSummary> rooms;
+    try {
+      final result = await chat.listRooms();
+      rooms = result.rooms.where((r) => r.id != widget.roomId).toList();
+    } catch (err) {
+      if (!mounted) return;
+      setState(() {
+        _error = err is Exception ? err.toString() : 'Failed to load rooms';
+      });
+      return;
+    }
+    if (!mounted) return;
+    if (rooms.isEmpty) {
+      setState(() => _error = 'No other rooms to forward to');
+      return;
+    }
+
+    final targetRoomId = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  'Forward to…',
+                  style: TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              Flexible(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: rooms.length,
+                  itemBuilder: (context, index) {
+                    final room = rooms[index];
+                    return ListTile(
+                      leading: const Icon(Icons.chat_bubble_outline),
+                      title: Text(room.name ?? room.externalId ?? room.id),
+                      onTap: () => Navigator.pop(sheetContext, room.id),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+    if (targetRoomId == null || !mounted) return;
+
+    try {
+      await chat.forwardMessage(widget.roomId, message.id, [targetRoomId]);
+    } catch (err) {
+      if (!mounted) return;
+      setState(() {
+        _error = err is Exception ? err.toString() : 'Failed to forward';
+      });
+    }
+  }
+
   Future<void> _saveEdit(Message message) async {
     final text = _editController.text.trim();
     if (text.isEmpty) return;
@@ -373,6 +455,26 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
                           onRedial: widget.onCallRedial,
                         );
                       }
+                      final membership = message.deletedAt == null
+                          ? parseMembershipPart(message.parts)
+                          : null;
+                      if (membership != null) {
+                        return _MembershipRow(
+                          theme: theme,
+                          label: formatMembershipPreview(
+                            membership,
+                            actorName: displayNameFor(
+                              membership.actorUserId,
+                              userMap,
+                            ),
+                            targetName: displayNameFor(
+                              membership.targetUserId,
+                              userMap,
+                            ),
+                          ),
+                          createdAt: message.createdAt,
+                        );
+                      }
                       final editing = _editingId == message.id;
                       final defaultBubble = _MessageBubble(
                         theme: theme,
@@ -383,6 +485,11 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
                         isGroup: widget.isGroup,
                         preview: _preview(message),
                         senderName: displayNameFor(message.senderId, userMap),
+                        forwardedFromLabel: message.forwardedFromId == null
+                            ? null
+                            : message.forwardedFromSenderId != null
+                                ? 'Forwarded from ${displayNameFor(message.forwardedFromSenderId!, userMap)}'
+                                : 'Forwarded message',
                         isRead: isMessageReadByPeer(
                           messageCreatedAt: message.createdAt,
                           messageSenderId: message.senderId,
@@ -412,6 +519,12 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
                             ? () => _deleteMessage(message)
                             : null,
                         onReact: (emoji) => _react(message, emoji),
+                        onTogglePin: message.deletedAt == null
+                            ? () => _togglePin(message)
+                            : null,
+                        onForward: message.deletedAt == null
+                            ? () => _forwardMessage(message)
+                            : null,
                       );
                       if (widget.bubbleBuilder != null) {
                         return widget.bubbleBuilder!(
@@ -472,6 +585,43 @@ class _CallLogRow extends StatelessWidget {
   }
 }
 
+class _MembershipRow extends StatelessWidget {
+  const _MembershipRow({
+    required this.theme,
+    required this.label,
+    required this.createdAt,
+  });
+
+  final SendsarChatTheme theme;
+  final String label;
+  final String createdAt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        children: [
+          Center(
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12.5, color: theme.textMuted),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Text(
+              formatMessageTime(createdAt),
+              style: TextStyle(fontSize: 11, color: theme.textMuted),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     required this.theme,
@@ -482,6 +632,7 @@ class _MessageBubble extends StatelessWidget {
     required this.isGroup,
     required this.preview,
     required this.senderName,
+    required this.forwardedFromLabel,
     required this.isRead,
     required this.editing,
     required this.editController,
@@ -490,6 +641,8 @@ class _MessageBubble extends StatelessWidget {
     required this.onSaveEdit,
     required this.onDelete,
     required this.onReact,
+    required this.onTogglePin,
+    required this.onForward,
   });
 
   final SendsarChatTheme theme;
@@ -500,6 +653,7 @@ class _MessageBubble extends StatelessWidget {
   final bool isGroup;
   final String preview;
   final String senderName;
+  final String? forwardedFromLabel;
   final bool isRead;
   final bool editing;
   final TextEditingController editController;
@@ -508,6 +662,8 @@ class _MessageBubble extends StatelessWidget {
   final VoidCallback onSaveEdit;
   final VoidCallback? onDelete;
   final ValueChanged<String> onReact;
+  final VoidCallback? onTogglePin;
+  final VoidCallback? onForward;
 
   void _showMessageActions(BuildContext context) {
     if (editing || message.deletedAt != null) return;
@@ -538,6 +694,28 @@ class _MessageBubble extends StatelessWidget {
                 ),
               ),
               const Divider(height: 1),
+              if (onTogglePin != null)
+                ListTile(
+                  leading: Icon(
+                    message.pinnedAt == null
+                        ? Icons.push_pin_outlined
+                        : Icons.push_pin,
+                  ),
+                  title: Text(message.pinnedAt == null ? 'Pin' : 'Unpin'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    onTogglePin!();
+                  },
+                ),
+              if (onForward != null)
+                ListTile(
+                  leading: const Icon(Icons.forward_outlined),
+                  title: const Text('Forward'),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    onForward!();
+                  },
+                ),
               if (onStartEdit != null)
                 ListTile(
                   leading: const Icon(Icons.edit_outlined),
@@ -610,6 +788,11 @@ class _MessageBubble extends StatelessWidget {
                   ),
                 ),
               if (!isSelf) const SizedBox(width: 8),
+              if (isSelf && message.pinnedAt != null)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4, bottom: 4),
+                  child: Icon(Icons.push_pin, size: 14, color: theme.textMuted),
+                ),
               Flexible(
                 child: GestureDetector(
                   onLongPress: editing ? null : () => _showMessageActions(context),
@@ -650,6 +833,29 @@ class _MessageBubble extends StatelessWidget {
                         : Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
+                              if (forwardedFromLabel != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 2),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.forward_outlined,
+                                        size: 12,
+                                        color: fg.withValues(alpha: 0.7),
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        forwardedFromLabel!,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontStyle: FontStyle.italic,
+                                          color: fg.withValues(alpha: 0.7),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               if (preview.isNotEmpty)
                                 SendsarMessageText(
                                   text: preview,
@@ -681,6 +887,11 @@ class _MessageBubble extends StatelessWidget {
                   ),
                 ),
               ),
+              if (!isSelf && message.pinnedAt != null)
+                Padding(
+                  padding: const EdgeInsets.only(left: 4, bottom: 4),
+                  child: Icon(Icons.push_pin, size: 14, color: theme.textMuted),
+                ),
             ],
           ),
           if (reactions.isNotEmpty)

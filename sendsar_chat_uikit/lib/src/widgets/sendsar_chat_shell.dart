@@ -49,6 +49,7 @@ class SendsarChatShellState extends State<SendsarChatShell> {
   bool _mobileShowThread = false;
   bool _showInfoPanel = true;
   bool _realtimeWired = false;
+  int _messageListEpoch = 0;
   TenantPresenceTracker? _presenceTracker;
   Timer? _reloadTimer;
   final List<void Function()> _unsubscribers = [];
@@ -125,6 +126,20 @@ class SendsarChatShellState extends State<SendsarChatShell> {
       }),
     );
 
+    _unsubscribers.add(
+      client.on(SocketEvent.roomParticipantsChanged, (event) {
+        if (event is! RoomParticipantsChangedEvent || !mounted) return;
+        final selfId = session.session?.chatUserId;
+        if (selfId != null &&
+            event.targetUserId == selfId &&
+            (event.action == 'removed' || event.action == 'left')) {
+          _onRoomDeleted(event.roomId);
+          return;
+        }
+        _scheduleSidebarReload();
+      }),
+    );
+
     _presenceTracker = createTenantPresenceTracker(client);
     _unsubscribers.add(
       _presenceTracker!.subscribe((ids) {
@@ -169,6 +184,8 @@ class SendsarChatShellState extends State<SendsarChatShell> {
         builder: (_) => SendsarCallScreen(
           title: _callOverlayTitle(calls),
           avatarUrl: _callOverlayAvatarUrl(calls),
+          isGroup: _callIsGroup(calls),
+          labelForIdentity: _callIdentityLabel,
           calls: calls,
         ),
       );
@@ -269,6 +286,24 @@ class SendsarChatShellState extends State<SendsarChatShell> {
     });
   }
 
+  void _onRoomDeleted(String roomId) {
+    setState(() {
+      if (_selectedRoom?.id == roomId) {
+        _selectedRoom = null;
+        _mobileShowThread = false;
+        _showInfoPanel = false;
+      }
+    });
+    unawaited(conversationListController.reload());
+  }
+
+  void _onHistoryCleared(String roomId) {
+    if (_selectedRoom?.id == roomId) {
+      setState(() => _messageListEpoch++);
+    }
+    unawaited(conversationListController.reload());
+  }
+
   Future<void> openRoom(String roomId, {String? title}) async {
     final session = context.read<SendsarSessionService>();
     final deadline = DateTime.now().add(const Duration(seconds: 15));
@@ -317,6 +352,20 @@ class SendsarChatShellState extends State<SendsarChatShell> {
   bool _roomIsGroup() {
     final room = _selectedRoom;
     return room != null && isGroupRoom(room);
+  }
+
+  bool _callIsGroup(SendsarCallService calls) {
+    final callRoomId =
+        calls.activeCall?.roomId ?? calls.incomingInvite?.roomId;
+    final room = _selectedRoom;
+    if (room != null && (callRoomId == null || callRoomId == room.id)) {
+      return isGroupRoom(room);
+    }
+    return false;
+  }
+
+  String _callIdentityLabel(String identity) {
+    return displayNameFor(identity, userDirectoryMap(widget.users));
   }
 
   String _typingLabel() {
@@ -382,6 +431,11 @@ class SendsarChatShellState extends State<SendsarChatShell> {
             onlineUserIds: _onlineUserIds,
             title: _roomTitle(),
             onClose: () => Navigator.pop(ctx),
+            onConversationDeleted: (id) {
+              Navigator.pop(ctx);
+              _onRoomDeleted(id);
+            },
+            onHistoryCleared: _onHistoryCleared,
           ),
         ),
       );
@@ -463,6 +517,8 @@ class SendsarChatShellState extends State<SendsarChatShell> {
                                   typingByRoom: _typingByRoom,
                                   onlineUserIds: _onlineUserIds,
                                   onRoomSelect: _onRoomSelect,
+                                  onRoomDeleted: _onRoomDeleted,
+                                  onHistoryCleared: _onHistoryCleared,
                                   style: widget.conversationListStyle,
                                   itemBuilder: widget.conversationItemBuilder,
                                   lastMessageOverrides: _lastMessageOverrides,
@@ -497,6 +553,9 @@ class SendsarChatShellState extends State<SendsarChatShell> {
                                           ),
                                           Expanded(
                                             child: SendsarMessageList(
+                                              key: ValueKey(
+                                                '${selected.id}-$_messageListEpoch',
+                                              ),
                                               roomId: selected.id,
                                               isGroup: _roomIsGroup(),
                                               users: widget.users,
@@ -530,6 +589,8 @@ class SendsarChatShellState extends State<SendsarChatShell> {
                                   title: _roomTitle(),
                                   onClose: () =>
                                       setState(() => _showInfoPanel = false),
+                                  onConversationDeleted: _onRoomDeleted,
+                                  onHistoryCleared: _onHistoryCleared,
                                 ),
                               ),
                           ],
@@ -541,6 +602,8 @@ class SendsarChatShellState extends State<SendsarChatShell> {
                     SendsarCallOverlay(
                       title: _callOverlayTitle(calls),
                       avatarUrl: _callOverlayAvatarUrl(calls),
+                      isGroup: _callIsGroup(calls),
+                      labelForIdentity: _callIdentityLabel,
                     ),
                 ],
               ),

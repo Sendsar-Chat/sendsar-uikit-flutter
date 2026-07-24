@@ -8,6 +8,7 @@ import 'package:sendsar_call/sendsar_call.dart';
 import '../services/sendsar_call_service.dart';
 import '../theme/sendsar_chat_theme.dart';
 import 'call_ui_shared.dart';
+import 'sendsar_call_participant_grid.dart';
 
 /// Floating call card for wide/desktop layouts — incoming/outgoing ring,
 /// active call, and a minimized chip. Mount it in a [Stack] above the chat
@@ -20,11 +21,15 @@ class SendsarCallOverlay extends StatelessWidget {
     super.key,
     required this.title,
     this.avatarUrl,
+    this.isGroup = false,
+    this.labelForIdentity,
   });
 
   /// Peer or room label shown in the header/chip.
   final String title;
   final String? avatarUrl;
+  final bool isGroup;
+  final String Function(String identity)? labelForIdentity;
 
   @override
   Widget build(BuildContext context) {
@@ -44,7 +49,13 @@ class SendsarCallOverlay extends StatelessWidget {
       right: 16,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 380, maxHeight: 520),
-        child: _CallCard(calls: calls, title: title, avatarUrl: avatarUrl),
+        child: _CallCard(
+          calls: calls,
+          title: title,
+          avatarUrl: avatarUrl,
+          isGroup: isGroup,
+          labelForIdentity: labelForIdentity,
+        ),
       ),
     );
   }
@@ -124,11 +135,15 @@ class _CallCard extends StatelessWidget {
     required this.calls,
     required this.title,
     this.avatarUrl,
+    this.isGroup = false,
+    this.labelForIdentity,
   });
 
   final SendsarCallService calls;
   final String title;
   final String? avatarUrl;
+  final bool isGroup;
+  final String Function(String identity)? labelForIdentity;
 
   @override
   Widget build(BuildContext context) {
@@ -197,6 +212,8 @@ class _CallCard extends StatelessWidget {
               title: title,
               avatarUrl: avatarUrl,
               theme: theme,
+              isGroup: isGroup,
+              labelForIdentity: labelForIdentity,
             ),
           ),
           Padding(
@@ -229,45 +246,59 @@ class _Stage extends StatelessWidget {
     required this.title,
     required this.theme,
     this.avatarUrl,
+    this.isGroup = false,
+    this.labelForIdentity,
   });
 
   final SendsarCallService calls;
   final String title;
   final String? avatarUrl;
   final SendsarChatTheme theme;
+  final bool isGroup;
+  final String Function(String identity)? labelForIdentity;
 
   @override
   Widget build(BuildContext context) {
     final remote = calls.remoteVideoTrack;
     final local = calls.localVideoTrack;
+    final useGrid = isGroup &&
+        (calls.callState == callStateActive ||
+            calls.callState == callStateConnecting);
 
     return AspectRatio(
       aspectRatio: 4 / 3,
       child: Container(
         color: theme.sidebarBg,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (remote != null)
-              lk.VideoTrackRenderer(remote)
-            else
-              Center(
-                child:
-                    CallAvatar(title: title, avatarUrl: avatarUrl, radius: 40),
+        child: useGrid
+            ? SendsarCallParticipantGrid(
+                calls: calls,
+                roomTitle: title,
+                labelForIdentity: labelForIdentity,
+                padding: const EdgeInsets.all(6),
+              )
+            : Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (remote != null)
+                    lk.VideoTrackRenderer(remote)
+                  else
+                    Center(
+                      child: CallAvatar(
+                          title: title, avatarUrl: avatarUrl, radius: 40),
+                    ),
+                  if (local != null)
+                    Positioned(
+                      right: 10,
+                      bottom: 10,
+                      width: 96,
+                      height: 72,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: lk.VideoTrackRenderer(local),
+                      ),
+                    ),
+                ],
               ),
-            if (local != null)
-              Positioned(
-                right: 10,
-                bottom: 10,
-                width: 96,
-                height: 72,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: lk.VideoTrackRenderer(local),
-                ),
-              ),
-          ],
-        ),
       ),
     );
   }

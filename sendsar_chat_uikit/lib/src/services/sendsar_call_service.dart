@@ -51,7 +51,8 @@ class SendsarCallService extends ChangeNotifier {
   bool _speakerEnabled = true;
   bool _minimized = false;
   lk.VideoTrack? _localVideoTrack;
-  lk.VideoTrack? _remoteVideoTrack;
+  final Map<String, lk.VideoTrack> _remoteVideoTracks = {};
+  final Map<String, String> _remoteIdentities = {};
 
   CallState get callState => _callState;
   CallRecord? get activeCall => _activeCall;
@@ -65,7 +66,18 @@ class SendsarCallService extends ChangeNotifier {
   bool get speakerEnabled => _speakerEnabled;
   bool get minimized => _minimized;
   lk.VideoTrack? get localVideoTrack => _localVideoTrack;
-  lk.VideoTrack? get remoteVideoTrack => _remoteVideoTrack;
+
+  /// First remote video track — used by 1:1 PiP layouts.
+  lk.VideoTrack? get remoteVideoTrack =>
+      _remoteVideoTracks.isEmpty ? null : _remoteVideoTracks.values.first;
+
+  /// All remote video tracks keyed by LiveKit participant sid (group grid).
+  Map<String, lk.VideoTrack> get remoteVideoTracks =>
+      Map.unmodifiable(_remoteVideoTracks);
+
+  /// LiveKit identity (usually chat userId) per participant sid.
+  Map<String, String> get remoteIdentities =>
+      Map.unmodifiable(_remoteIdentities);
 
   /// Live `m:ss` / `h:mm:ss` while media is connected; empty otherwise.
   String get durationLabel {
@@ -338,16 +350,26 @@ class SendsarCallService extends ChangeNotifier {
         }),
         client.on<CallTrackEvent>('remoteTrack', (event) {
           final track = event.track;
-          if (track is lk.VideoTrack) {
-            _remoteVideoTrack = track;
-            _notify();
+          if (track is! lk.VideoTrack) return;
+          final sid = event.participantSid ?? track.sid ?? 'remote';
+          _remoteVideoTracks[sid] = track;
+          final identity = event.participantIdentity;
+          if (identity != null && identity.isNotEmpty) {
+            _remoteIdentities[sid] = identity;
           }
+          _notify();
         }),
         client.on<CallTrackEvent>('remoteTrackRemoved', (event) {
-          if (event.track is lk.VideoTrack) {
-            _remoteVideoTrack = null;
-            _notify();
+          if (event.track is! lk.VideoTrack) return;
+          final sid = event.participantSid ?? event.track.sid;
+          if (sid != null) {
+            _remoteVideoTracks.remove(sid);
+            _remoteIdentities.remove(sid);
+          } else {
+            _remoteVideoTracks.clear();
+            _remoteIdentities.clear();
           }
+          _notify();
         }),
         client.on<Object?>('mediaConnected', (_) {
           _mediaStatus = 'connected';
@@ -481,7 +503,8 @@ class SendsarCallService extends ChangeNotifier {
 
   void _clearMediaTracks() {
     _localVideoTrack = null;
-    _remoteVideoTrack = null;
+    _remoteVideoTracks.clear();
+    _remoteIdentities.clear();
   }
 
   void _destroyClient({bool notify = true}) {

@@ -17,6 +17,7 @@ export 'src/utils/user_directory.dart';
 export 'src/widgets/sendsar_animated_emoji.dart';
 export 'src/widgets/sendsar_call_log_bubble.dart';
 export 'src/widgets/sendsar_call_overlay.dart';
+export 'src/widgets/sendsar_call_participant_grid.dart';
 export 'src/widgets/sendsar_call_screen.dart';
 export 'src/widgets/sendsar_chat_shell.dart';
 export 'src/widgets/sendsar_composer.dart';
