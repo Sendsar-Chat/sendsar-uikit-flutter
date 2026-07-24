@@ -22,7 +22,7 @@ dependencies:
   characters: ^1.4.0
   audioplayers: ^6.1.0
   livekit_client: ^2.8.1
-  sendsar_chat: ^0.6.0
+  sendsar_chat: ^0.6.1
   sendsar_call: ^0.2.0
 
 dev_dependencies:

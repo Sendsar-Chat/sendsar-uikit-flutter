@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:sendsar_chat/sendsar_chat.dart';
 
 import '../services/sendsar_call_service.dart';
+import '../services/sendsar_chat_service.dart';
 import '../services/sendsar_session_service.dart';
 import '../theme/sendsar_chat_theme.dart';
 import '../theme/sendsar_styles.dart';
@@ -46,6 +47,8 @@ class SendsarChatShellState extends State<SendsarChatShell> {
   RoomSummary? _selectedRoom;
   TypingByRoom _typingByRoom = {};
   Set<String> _onlineUserIds = {};
+  List<RoomParticipant> _groupParticipants = const [];
+  int _participantsLoadToken = 0;
   bool _mobileShowThread = false;
   bool _showInfoPanel = true;
   bool _realtimeWired = false;
@@ -135,6 +138,10 @@ class SendsarChatShellState extends State<SendsarChatShell> {
             (event.action == 'removed' || event.action == 'left')) {
           _onRoomDeleted(event.roomId);
           return;
+        }
+        final selected = _selectedRoom;
+        if (selected != null && event.roomId == selected.id) {
+          unawaited(_loadGroupParticipants(selected));
         }
         _scheduleSidebarReload();
       }),
@@ -282,8 +289,9 @@ class SendsarChatShellState extends State<SendsarChatShell> {
     setState(() {
       _selectedRoom = room;
       _mobileShowThread = true;
-      _showInfoPanel = true;
+      _showInfoPane = true;
     });
+    unawaited(_loadGroupParticipants(room));
   }
 
   void _onRoomDeleted(String roomId) {
@@ -291,10 +299,28 @@ class SendsarChatShellState extends State<SendsarChatShell> {
       if (_selectedRoom?.id == roomId) {
         _selectedRoom = null;
         _mobileShowThread = false;
-        _showInfoPanel = false;
+        _showInfoPane = false;
+        _groupParticipants = const [];
       }
     });
     unawaited(conversationListController.reload());
+  }
+
+  Future<void> _loadGroupParticipants(RoomSummary? room) async {
+    final token = ++_participantsLoadToken;
+    if (room == null || !isGroupRoom(room)) {
+      if (!mounted || token != _participantsLoadToken) return;
+      setState(() => _groupParticipants = const []);
+      return;
+    }
+    try {
+      final detail = await context.read<SendsarChatService>().getRoom(room.id);
+      if (!mounted || token != _participantsLoadToken) return;
+      setState(() => _groupParticipants = detail.participants);
+    } catch (_) {
+      if (!mounted || token != _participantsLoadToken) return;
+      setState(() => _groupParticipants = const []);
+    }
   }
 
   void _onHistoryCleared(String roomId) {
@@ -321,6 +347,7 @@ class SendsarChatShellState extends State<SendsarChatShell> {
         _mobileShowThread = true;
         _showInfoPanel = true;
       });
+      unawaited(_loadGroupParticipants(room));
       return;
     }
 
@@ -395,10 +422,11 @@ class SendsarChatShellState extends State<SendsarChatShell> {
     if (room == null) return '';
 
     if (isGroupRoom(room)) {
-      final members = widget.users.where((u) => u.id != selfId).toList();
-      final memberCount = members.isEmpty ? 1 : members.length;
-      final online = members.where((u) => _onlineUserIds.contains(u.id)).length;
-      return '$memberCount members, $online online';
+      final members = _groupParticipants;
+      if (members.isEmpty) return 'Group';
+      final online =
+          members.where((p) => _onlineUserIds.contains(p.userId)).length;
+      return '${members.length} members, $online online';
     }
 
     if (isDirectMessage(room)) {
@@ -406,7 +434,7 @@ class SendsarChatShellState extends State<SendsarChatShell> {
       if (peerId != null && _onlineUserIds.contains(peerId)) {
         return 'Online';
       }
-      return 'Direct message';
+      return '';
     }
 
     return 'Conversation';

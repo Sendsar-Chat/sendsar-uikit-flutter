@@ -351,9 +351,14 @@ class _SendsarRoomInfoState extends State<SendsarRoomInfo> {
           Center(
             child: Text(
               isGroup
-                  ? '${members.length} members'
+                  ? (members.isEmpty
+                      ? 'Group'
+                      : '${members.length} members, ${members.where((m) => widget.onlineUserIds.contains(m.userId)).length} online')
                   : isDm
-                      ? 'Direct message'
+                      ? (members.isNotEmpty &&
+                              widget.onlineUserIds.contains(members.first.userId)
+                          ? 'Online'
+                          : '')
                       : 'Conversation',
               style: theme.subtitleStyle,
             ),
