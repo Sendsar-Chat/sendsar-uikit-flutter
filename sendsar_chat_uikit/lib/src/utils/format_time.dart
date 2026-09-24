@@ -38,3 +38,15 @@ String formatMessageTime(String? iso) {
   final mm = then.minute.toString().padLeft(2, '0');
   return '$hh:$mm';
 }
+
+/// Local `h:mm a` clock time for message headers (matches Angular).
+String formatMessageHeaderTime(String? iso) {
+  if (iso == null || iso.isEmpty) return '';
+  final then = DateTime.tryParse(iso)?.toLocal();
+  if (then == null) return '';
+  final hour24 = then.hour;
+  final hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12;
+  final mm = then.minute.toString().padLeft(2, '0');
+  final period = hour24 >= 12 ? 'PM' : 'AM';
+  return '$hour12:$mm $period';
+}

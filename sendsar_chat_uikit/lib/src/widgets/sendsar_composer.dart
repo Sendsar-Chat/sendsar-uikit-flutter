@@ -9,17 +9,7 @@ import 'package:uuid/uuid.dart';
 import '../services/sendsar_chat_service.dart';
 import '../services/sendsar_session_service.dart';
 import '../theme/sendsar_chat_theme.dart';
-
-const _emojiGroups = [
-  (
-    label: 'Popular',
-    emojis: ['👍', '❤️', '😂', '🔥', '🙏', '👏', '😭', '😍', '🎉', '😊', '✨', '🤔'],
-  ),
-  (
-    label: 'Smileys',
-    emojis: ['😀', '😁', '😂', '🤣', '😊', '😍', '😘', '😎', '🥳', '😭', '😡', '🤔'],
-  ),
-];
+import '../utils/emoji_groups.dart';
 
 const _toolSize = 40.0;
 const _sendSize = 40.0;
@@ -204,7 +194,7 @@ class _SendsarComposerState extends State<SendsarComposer> {
                       child: ListView(
                         padding: const EdgeInsets.all(8),
                         children: [
-                          for (final group in _emojiGroups) ...[
+                          for (final group in defaultEmojiGroups) ...[
                             Text(group.label, style: theme.subtitleStyle),
                             Wrap(
                               spacing: 4,

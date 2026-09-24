@@ -482,9 +482,9 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
                         animatedEmoji: animatedEmoji,
                         message: message,
                         isSelf: isSelf,
-                        isGroup: widget.isGroup,
                         preview: _preview(message),
                         senderName: displayNameFor(message.senderId, userMap),
+                        createdAt: message.createdAt,
                         forwardedFromLabel: message.forwardedFromId == null
                             ? null
                             : message.forwardedFromSenderId != null
@@ -629,9 +629,9 @@ class _MessageBubble extends StatelessWidget {
     required this.animatedEmoji,
     required this.message,
     required this.isSelf,
-    required this.isGroup,
     required this.preview,
     required this.senderName,
+    required this.createdAt,
     required this.forwardedFromLabel,
     required this.isRead,
     required this.editing,
@@ -650,9 +650,9 @@ class _MessageBubble extends StatelessWidget {
   final bool animatedEmoji;
   final Message message;
   final bool isSelf;
-  final bool isGroup;
   final String preview;
   final String senderName;
+  final String createdAt;
   final String? forwardedFromLabel;
   final bool isRead;
   final bool editing;
@@ -750,140 +750,196 @@ class _MessageBubble extends StatelessWidget {
         : (listStyle?.peerBubbleColor ?? theme.bubblePeer);
     final fg = isSelf ? theme.bubbleSelfText : theme.bubblePeerText;
     final radius = listStyle?.bubbleRadius ?? 12.0;
+    final timeLabel = formatMessageHeaderTime(createdAt);
+    final displayName = isSelf ? '$senderName (Me)' : senderName;
 
     final reactions = <String, int>{};
     for (final r in message.reactions ?? const []) {
       reactions[r.emoji] = (reactions[r.emoji] ?? 0) + 1;
     }
 
+    Widget avatar() => CircleAvatar(
+          radius: 14,
+          backgroundColor: theme.accentSoft,
+          child: Text(
+            initialsFor(senderName),
+            style: TextStyle(fontSize: 10, color: theme.accent),
+          ),
+        );
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Column(
         crossAxisAlignment: align,
         children: [
-          if (isGroup && !isSelf)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 4, left: 4),
-              child: Text(
-                senderName,
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: theme.textSecondary,
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Row(
+              mainAxisAlignment:
+                  isSelf ? MainAxisAlignment.end : MainAxisAlignment.start,
+              children: [
+                if (!isSelf) ...[
+                  avatar(),
+                  const SizedBox(width: 8),
+                ],
+                Flexible(
+                  child: Text(
+                    displayName,
+                    textAlign: isSelf ? TextAlign.end : TextAlign.start,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: theme.textSecondary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-              ),
+                if (timeLabel.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  Text(
+                    timeLabel,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: theme.textMuted,
+                    ),
+                  ),
+                ],
+                if (isSelf) ...[
+                  const SizedBox(width: 8),
+                  avatar(),
+                ],
+              ],
             ),
+          ),
           Row(
             mainAxisAlignment:
                 isSelf ? MainAxisAlignment.end : MainAxisAlignment.start,
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (!isSelf)
-                CircleAvatar(
-                  radius: 14,
-                  backgroundColor: theme.accentSoft,
-                  child: Text(
-                    initialsFor(senderName),
-                    style: TextStyle(fontSize: 10, color: theme.accent),
-                  ),
-                ),
-              if (!isSelf) const SizedBox(width: 8),
               if (isSelf && message.pinnedAt != null)
                 Padding(
                   padding: const EdgeInsets.only(right: 4, bottom: 4),
                   child: Icon(Icons.push_pin, size: 14, color: theme.textMuted),
                 ),
               Flexible(
-                child: GestureDetector(
-                  onLongPress: editing ? null : () => _showMessageActions(context),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: bg,
-                      borderRadius: BorderRadius.circular(radius),
+                child: Align(
+                  alignment:
+                      isSelf ? Alignment.centerRight : Alignment.centerLeft,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxWidth: MediaQuery.sizeOf(context).width * 0.5,
                     ),
-                    child: editing
-                        ? Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              TextField(
-                                controller: editController,
-                                maxLines: 4,
-                                style: TextStyle(color: fg),
-                                decoration: const InputDecoration(
-                                  isDense: true,
-                                  border: InputBorder.none,
-                                ),
-                              ),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.end,
-                                children: [
-                                  TextButton(
-                                    onPressed: onCancelEdit,
-                                    child: const Text('Cancel'),
-                                  ),
-                                  TextButton(
-                                    onPressed: onSaveEdit,
-                                    child: const Text('Save'),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          )
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (forwardedFromLabel != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 2),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(
-                                        Icons.forward_outlined,
-                                        size: 12,
-                                        color: fg.withValues(alpha: 0.7),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        forwardedFromLabel!,
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          fontStyle: FontStyle.italic,
-                                          color: fg.withValues(alpha: 0.7),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              if (preview.isNotEmpty)
-                                SendsarMessageText(
-                                  text: preview,
-                                  style: TextStyle(color: fg),
-                                  animatedEmoji: animatedEmoji,
-                                ),
-                              ..._attachmentWidgets(message, fg),
-                              if (isSelf)
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(top: 2),
-                                    child: Text(
-                                      isRead ? '✓✓' : '✓',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        height: 1,
-                                        color: isRead
-                                            ? theme.bubbleSelfText
-                                                .withValues(alpha: 0.85)
-                                            : theme.bubbleSelfText
-                                                .withValues(alpha: 0.55),
+                    child: IntrinsicWidth(
+                      child: GestureDetector(
+                        onLongPress: editing
+                            ? null
+                            : () => _showMessageActions(context),
+                        child: Container(
+                          constraints: const BoxConstraints(minWidth: 40),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: bg,
+                            borderRadius: BorderRadius.circular(radius),
+                          ),
+                          child: editing
+                              ? Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    TextField(
+                                      controller: editController,
+                                      maxLines: 4,
+                                      style: TextStyle(color: fg),
+                                      decoration: const InputDecoration(
+                                        isDense: true,
+                                        border: InputBorder.none,
                                       ),
                                     ),
-                                  ),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      children: [
+                                        TextButton(
+                                          onPressed: onCancelEdit,
+                                          child: const Text('Cancel'),
+                                        ),
+                                        TextButton(
+                                          onPressed: onSaveEdit,
+                                          child: const Text('Save'),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                )
+                              : Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    if (forwardedFromLabel != null)
+                                      Padding(
+                                        padding:
+                                            const EdgeInsets.only(bottom: 2),
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              Icons.forward_outlined,
+                                              size: 12,
+                                              color:
+                                                  fg.withValues(alpha: 0.7),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
+                                                forwardedFromLabel!,
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  fontStyle: FontStyle.italic,
+                                                  color: fg.withValues(
+                                                    alpha: 0.7,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    if (preview.isNotEmpty)
+                                      SendsarMessageText(
+                                        text: preview,
+                                        style: TextStyle(
+                                          color: fg,
+                                          height: 1.35,
+                                        ),
+                                        animatedEmoji: animatedEmoji,
+                                      ),
+                                    ..._attachmentWidgets(message, fg),
+                                    if (isSelf)
+                                      Align(
+                                        alignment: Alignment.centerRight,
+                                        child: Padding(
+                                          padding:
+                                              const EdgeInsets.only(top: 2),
+                                          child: Icon(
+                                            isRead
+                                                ? Icons.done_all
+                                                : Icons.done,
+                                            size: 14,
+                                            color: isRead
+                                                ? theme.bubbleSelfText
+                                                    .withValues(alpha: 0.85)
+                                                : theme.bubbleSelfText
+                                                    .withValues(alpha: 0.55),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
-                            ],
-                          ),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -898,7 +954,7 @@ class _MessageBubble extends StatelessWidget {
             Padding(
               padding: EdgeInsets.only(
                 top: 4,
-                left: isSelf ? 0 : 36,
+                left: isSelf ? 0 : 4,
                 right: isSelf ? 4 : 0,
               ),
               child: Align(
@@ -945,18 +1001,24 @@ class _MessageBubble extends StatelessWidget {
             padding: const EdgeInsets.only(top: 6),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: CachedNetworkImage(
-                imageUrl: url,
-                height: imageHeight,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                placeholder: (_, __) => SizedBox(
-                  height: imageHeight,
-                  child: ColoredBox(color: theme.skeletonMuted),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: imageHeight,
+                  maxWidth: 280,
                 ),
-                errorWidget: (_, __, ___) => SizedBox(
-                  height: imageHeight,
-                  child: ColoredBox(color: theme.skeleton),
+                child: CachedNetworkImage(
+                  imageUrl: url,
+                  fit: BoxFit.cover,
+                  placeholder: (_, __) => SizedBox(
+                    height: imageHeight,
+                    width: 180,
+                    child: ColoredBox(color: theme.skeletonMuted),
+                  ),
+                  errorWidget: (_, __, ___) => SizedBox(
+                    height: 64,
+                    width: 120,
+                    child: ColoredBox(color: theme.skeleton),
+                  ),
                 ),
               ),
             ),

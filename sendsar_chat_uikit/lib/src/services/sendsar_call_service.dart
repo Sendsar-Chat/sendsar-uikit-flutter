@@ -353,10 +353,6 @@ class SendsarCallService extends ChangeNotifier {
           if (track is! lk.VideoTrack) return;
           final sid = event.participantSid ?? track.sid ?? 'remote';
           _remoteVideoTracks[sid] = track;
-          final identity = event.participantIdentity;
-          if (identity != null && identity.isNotEmpty) {
-            _remoteIdentities[sid] = identity;
-          }
           _notify();
         }),
         client.on<CallTrackEvent>('remoteTrackRemoved', (event) {

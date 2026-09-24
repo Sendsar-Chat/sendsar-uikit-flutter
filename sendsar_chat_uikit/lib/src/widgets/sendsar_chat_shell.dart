@@ -289,7 +289,7 @@ class SendsarChatShellState extends State<SendsarChatShell> {
     setState(() {
       _selectedRoom = room;
       _mobileShowThread = true;
-      _showInfoPane = true;
+      _showInfoPanel = true;
     });
     unawaited(_loadGroupParticipants(room));
   }
@@ -299,7 +299,7 @@ class SendsarChatShellState extends State<SendsarChatShell> {
       if (_selectedRoom?.id == roomId) {
         _selectedRoom = null;
         _mobileShowThread = false;
-        _showInfoPane = false;
+        _showInfoPanel = false;
         _groupParticipants = const [];
       }
     });
