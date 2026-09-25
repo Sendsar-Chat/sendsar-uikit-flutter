@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -10,9 +11,24 @@ import '../services/sendsar_chat_service.dart';
 import '../services/sendsar_session_service.dart';
 import '../theme/sendsar_chat_theme.dart';
 import '../utils/emoji_groups.dart';
+import '../utils/message_parts.dart';
 
 const _toolSize = 40.0;
 const _sendSize = 40.0;
+
+class _PendingFile {
+  const _PendingFile({
+    required this.bytes,
+    required this.name,
+    required this.mediaType,
+  });
+
+  final Uint8List bytes;
+  final String name;
+  final String mediaType;
+
+  bool get isImage => isImageMediaType(mediaType, name);
+}
 
 class SendsarComposer extends StatefulWidget {
   const SendsarComposer({
@@ -35,6 +51,7 @@ class _SendsarComposerState extends State<SendsarComposer> {
   bool _sending = false;
   bool _showEmojiPicker = false;
   String? _error;
+  _PendingFile? _pendingFile;
   final _uuid = const Uuid();
 
   @override
@@ -49,6 +66,7 @@ class _SendsarComposerState extends State<SendsarComposer> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.roomId != widget.roomId) {
       _showEmojiPicker = false;
+      _clearPendingFile();
       _bindTyping();
     }
   }
@@ -76,11 +94,18 @@ class _SendsarComposerState extends State<SendsarComposer> {
     _typingController?.onValueChange(value);
   }
 
-  bool get _canSend => _controller.text.trim().isNotEmpty && !_sending;
+  void _clearPendingFile() {
+    _pendingFile = null;
+  }
+
+  bool get _canSend =>
+      !_sending &&
+      (_controller.text.trim().isNotEmpty || _pendingFile != null);
 
   Future<void> _submit() async {
     final body = _controller.text.trim();
-    if (body.isEmpty || _sending) return;
+    final pending = _pendingFile;
+    if ((body.isEmpty && pending == null) || _sending) return;
 
     setState(() {
       _sending = true;
@@ -90,15 +115,32 @@ class _SendsarComposerState extends State<SendsarComposer> {
 
     try {
       final chat = context.read<SendsarChatService>();
-      await chat.sendMessage(
-        widget.roomId,
-        SendMessageParams(
-          parts: [MessagePart(type: 'text', text: body)],
-          clientMessageId: _uuid.v4(),
-        ),
-      );
+      final clientMessageId = _uuid.v4();
+
+      if (pending != null) {
+        await chat.sendFileMessage(
+          widget.roomId,
+          bytes: pending.bytes,
+          filename: pending.name,
+          mediaType: pending.mediaType,
+          text: body.isEmpty ? null : body,
+          clientMessageId: clientMessageId,
+        );
+      } else {
+        await chat.sendMessage(
+          widget.roomId,
+          SendMessageParams(
+            parts: [MessagePart(type: 'text', text: body)],
+            clientMessageId: clientMessageId,
+          ),
+        );
+      }
+
       _controller.clear();
-      setState(() => _showEmojiPicker = false);
+      setState(() {
+        _showEmojiPicker = false;
+        _clearPendingFile();
+      });
       widget.onSent?.call();
     } catch (err) {
       setState(() {
@@ -111,45 +153,38 @@ class _SendsarComposerState extends State<SendsarComposer> {
 
   Future<void> _pickFile() async {
     if (_sending) return;
-    setState(() => _showEmojiPicker = false);
+    setState(() {
+      _showEmojiPicker = false;
+      _error = null;
+    });
 
     final result = await FilePicker.platform.pickFiles(withData: true);
     final file = result?.files.firstOrNull;
-    if (file == null || file.bytes == null) return;
+    if (file == null || file.bytes == null || !mounted) return;
 
     setState(() {
-      _sending = true;
-      _error = null;
-    });
-    _typingController?.stop();
-
-    try {
-      final chat = context.read<SendsarChatService>();
-      await chat.sendFileMessage(
-        widget.roomId,
-        bytes: file.bytes!,
-        filename: file.name,
+      _pendingFile = _PendingFile(
+        bytes: Uint8List.fromList(file.bytes!),
+        name: file.name,
         mediaType: file.extension != null
             ? _guessMediaType(file.extension!)
             : 'application/octet-stream',
-        clientMessageId: _uuid.v4(),
       );
-      widget.onSent?.call();
-    } catch (err) {
-      setState(() {
-        _error = err is Exception ? err.toString() : 'Failed to send file';
-      });
-    } finally {
-      if (mounted) setState(() => _sending = false);
-    }
+    });
   }
 
   String _guessMediaType(String ext) {
     final lower = ext.toLowerCase();
-    if (['jpg', 'jpeg', 'png', 'gif', 'webp'].contains(lower)) {
-      return 'image/$lower';
-    }
-    return 'application/octet-stream';
+    const imageExts = {
+      'jpg': 'image/jpeg',
+      'jpeg': 'image/jpeg',
+      'png': 'image/png',
+      'gif': 'image/gif',
+      'webp': 'image/webp',
+      'bmp': 'image/bmp',
+      'svg': 'image/svg+xml',
+    };
+    return imageExts[lower] ?? 'application/octet-stream';
   }
 
   void _insertEmoji(String emoji) {
@@ -167,6 +202,8 @@ class _SendsarComposerState extends State<SendsarComposer> {
   @override
   Widget build(BuildContext context) {
     final theme = context.sendsarTheme;
+    final pending = _pendingFile;
+
     return Material(
       color: theme.sidebarBg,
       child: Column(
@@ -188,6 +225,16 @@ class _SendsarComposerState extends State<SendsarComposer> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (pending != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 10, 10, 0),
+                      child: _PendingFilePreview(
+                        file: pending,
+                        theme: theme,
+                        disabled: _sending,
+                        onRemove: () => setState(_clearPendingFile),
+                      ),
+                    ),
                   if (_showEmojiPicker)
                     SizedBox(
                       height: 160,
@@ -221,10 +268,13 @@ class _SendsarComposerState extends State<SendsarComposer> {
                       focusNode: _focusNode,
                       maxLines: 4,
                       minLines: 1,
+                      enabled: !_sending,
                       textInputAction: TextInputAction.newline,
                       onChanged: _onTextChanged,
-                      decoration: const InputDecoration(
-                        hintText: 'Message',
+                      decoration: InputDecoration(
+                        hintText: pending != null
+                            ? 'Add a caption…'
+                            : 'Message',
                         border: InputBorder.none,
                         isDense: true,
                         contentPadding: EdgeInsets.zero,
@@ -239,13 +289,17 @@ class _SendsarComposerState extends State<SendsarComposer> {
                         _ComposerToolButton(
                           icon: Icons.emoji_emotions_outlined,
                           active: _showEmojiPicker,
-                          onPressed: () =>
-                              setState(() => _showEmojiPicker = !_showEmojiPicker),
+                          onPressed: _sending
+                              ? null
+                              : () => setState(
+                                    () =>
+                                        _showEmojiPicker = !_showEmojiPicker,
+                                  ),
                           theme: theme,
                         ),
                         _ComposerToolButton(
                           icon: Icons.attach_file,
-                          onPressed: _sending ? null : _pickFile,
+                          onPressed: _sending ? null : () => unawaited(_pickFile()),
                           theme: theme,
                         ),
                         const Spacer(),
@@ -253,7 +307,8 @@ class _SendsarComposerState extends State<SendsarComposer> {
                           size: _sendSize,
                           enabled: _canSend,
                           loading: _sending,
-                          onPressed: _canSend ? () => unawaited(_submit()) : null,
+                          onPressed:
+                              _canSend ? () => unawaited(_submit()) : null,
                           theme: theme,
                         ),
                       ],
@@ -264,6 +319,89 @@ class _SendsarComposerState extends State<SendsarComposer> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _PendingFilePreview extends StatelessWidget {
+  const _PendingFilePreview({
+    required this.file,
+    required this.theme,
+    required this.onRemove,
+    this.disabled = false,
+  });
+
+  final _PendingFile file;
+  final SendsarChatTheme theme;
+  final VoidCallback onRemove;
+  final bool disabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.sidebarBg,
+        border: Border.all(color: theme.border),
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+        child: Row(
+          children: [
+            if (file.isImage)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Image.memory(
+                  file.bytes,
+                  width: 40,
+                  height: 40,
+                  fit: BoxFit.cover,
+                ),
+              )
+            else
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: theme.surface,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Icon(
+                  fileIconForAttachment(file.name, file.mediaType),
+                  size: 20,
+                  color: theme.accent,
+                ),
+              ),
+            const SizedBox(width: 9),
+            Expanded(
+              child: Text(
+                file.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w500,
+                  color: theme.textSecondary,
+                ),
+              ),
+            ),
+            SizedBox(
+              width: 28,
+              height: 28,
+              child: IconButton(
+                onPressed: disabled ? null : onRemove,
+                padding: EdgeInsets.zero,
+                iconSize: 16,
+                style: IconButton.styleFrom(
+                  foregroundColor: theme.textMuted,
+                ),
+                tooltip: 'Remove attachment',
+                icon: const Icon(Icons.close),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
