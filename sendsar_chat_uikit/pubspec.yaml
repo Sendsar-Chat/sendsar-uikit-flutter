@@ -22,12 +22,16 @@ dependencies:
   characters: ^1.4.0
   audioplayers: ^6.1.0
   livekit_client: ^2.8.1
-  sendsar_chat: ^0.6.1
+  sendsar_chat: ^0.6.0
   sendsar_call: ^0.2.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+
+# sendsar_call 0.2.0 still declares sendsar_chat ^0.2.0; force the published 0.6.0 SDK.
+dependency_overrides:
+  sendsar_chat: 0.6.0
 
 flutter:

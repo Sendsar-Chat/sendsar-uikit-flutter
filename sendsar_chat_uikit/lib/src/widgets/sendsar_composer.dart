@@ -12,6 +12,7 @@ import '../services/sendsar_session_service.dart';
 import '../theme/sendsar_chat_theme.dart';
 import '../utils/emoji_groups.dart';
 import '../utils/message_parts.dart';
+import 'sendsar_animated_emoji.dart';
 
 const _toolSize = 40.0;
 const _sendSize = 40.0;
@@ -249,9 +250,10 @@ class _SendsarComposerState extends State<SendsarComposer> {
                                 for (final emoji in group.emojis)
                                   IconButton(
                                     onPressed: () => _insertEmoji(emoji),
-                                    icon: Text(
-                                      emoji,
-                                      style: const TextStyle(fontSize: 22),
+                                    icon: SendsarAnimatedEmoji(
+                                      emoji: emoji,
+                                      size: 22,
+                                      enabled: false,
                                     ),
                                   ),
                               ],

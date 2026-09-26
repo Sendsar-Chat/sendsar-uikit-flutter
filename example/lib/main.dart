@@ -26,8 +26,12 @@ class _SendsarUIKitExampleAppState extends State<SendsarUIKitExampleApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Sendsar UI Kit',
+      themeMode: ThemeMode.light,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF2563EB)),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF2563EB),
+          brightness: Brightness.light,
+        ),
         useMaterial3: true,
         extensions: const [SendsarChatTheme.light],
       ),
@@ -47,6 +51,7 @@ class _SendsarUIKitExampleAppState extends State<SendsarUIKitExampleApp> {
               config: SendsarConfig(
                 fetchSession: () => _demo.fetchSession(_identity!),
               ),
+              theme: SendsarChatTheme.light,
               child: Scaffold(
                 appBar: AppBar(
                   title: Text('Chat as ${_identity!.displayName}'),
@@ -61,13 +66,13 @@ class _SendsarUIKitExampleAppState extends State<SendsarUIKitExampleApp> {
                   padding: const EdgeInsets.all(12),
                   child: Column(
                     children: [
-                      _DemoActions(
-                        selfId: _identity!.chatUserId,
-                        demo: _demo,
-                        onOpenRoom: (roomId, title) async {
-                          await _shellKey.currentState?.openRoom(roomId, title: title);
-                        },
-                      ),
+                      // _DemoActions(
+                      //   selfId: _identity!.chatUserId,
+                      //   demo: _demo,
+                      //   onOpenRoom: (roomId, title) async {
+                      //     await _shellKey.currentState?.openRoom(roomId, title: title);
+                      //   },
+                      // ),
                       const SizedBox(height: 12),
                       Expanded(
                         child: SendsarChatShell(

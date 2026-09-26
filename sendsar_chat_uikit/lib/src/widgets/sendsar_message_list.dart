@@ -15,6 +15,7 @@ import '../utils/message_parts.dart';
 import '../utils/room_thread_cache.dart';
 import '../utils/user_directory.dart';
 import 'sendsar_call_log_bubble.dart';
+import 'sendsar_animated_emoji.dart';
 import 'sendsar_message_text.dart';
 
 const _quickReactions = ['👍', '❤️', '😂', '🎉'];
@@ -809,7 +810,11 @@ class _MessageBubble extends StatelessWidget {
                           Navigator.pop(sheetContext);
                           onReact(emoji);
                         },
-                        icon: Text(emoji, style: const TextStyle(fontSize: 28)),
+                        icon: SendsarAnimatedEmoji(
+                          emoji: emoji,
+                          size: 28,
+                          enabled: false,
+                        ),
                       ),
                   ],
                 ),
@@ -1104,9 +1109,20 @@ class _MessageBubble extends StatelessWidget {
                               horizontal: 8,
                               vertical: 2,
                             ),
-                            child: Text(
-                              '${entry.key} ${entry.value}',
-                              style: const TextStyle(fontSize: 12),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SendsarAnimatedEmoji(
+                                  emoji: entry.key,
+                                  size: 14,
+                                  enabled: animatedEmoji,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  '${entry.value}',
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ],
                             ),
                           ),
                         ),
