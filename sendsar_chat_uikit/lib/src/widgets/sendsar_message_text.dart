@@ -23,18 +23,23 @@ class SendsarMessageText extends StatelessWidget {
       return Text(text, style: style);
     }
 
-    return Wrap(
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        for (final segment in segments)
-          switch (segment) {
-            PlainTextSegment(:final value) => Text(value, style: style),
-            EmojiTextSegment(:final value) => SendsarAnimatedEmoji(
-                emoji: value,
-                enabled: animatedEmoji,
-              ),
-          },
-      ],
+    return Text.rich(
+      TextSpan(
+        style: style,
+        children: [
+          for (final segment in segments)
+            switch (segment) {
+              PlainTextSegment(:final value) => TextSpan(text: value),
+              EmojiTextSegment(:final value) => WidgetSpan(
+                  alignment: PlaceholderAlignment.middle,
+                  child: SendsarAnimatedEmoji(
+                    emoji: value,
+                    enabled: animatedEmoji,
+                  ),
+                ),
+            },
+        ],
+      ),
     );
   }
 }

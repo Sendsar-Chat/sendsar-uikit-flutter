@@ -21,17 +21,12 @@ class SendsarSessionService extends ChangeNotifier {
   late SessionManagerState _state;
 
   SessionManagerState get state => _state;
-
   SendsarClient? get client => _state.client;
-
   SessionResponse? get session => _state.session;
-
   bool get isReady => _state.status == 'ready';
-
+  
   Future<void> start() => _manager.start();
-
   Future<void> stop() => _manager.stop();
-
   Future<void> restart() => _manager.restart();
 
   @override

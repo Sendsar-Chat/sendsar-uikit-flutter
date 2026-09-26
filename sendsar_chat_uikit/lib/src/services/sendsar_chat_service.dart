@@ -86,16 +86,36 @@ class SendsarChatService {
         ForwardMessageParams(targetRoomIds: targetRoomIds),
       );
 
+  Future<UploadFileResult> uploadFile(
+    String roomId, {
+    required List<int> bytes,
+    required String filename,
+    required String mediaType,
+  }) =>
+      requireClient().uploadFile(
+        UploadFileParams(
+          bytes: Uint8List.fromList(bytes),
+          filename: filename,
+          mediaType: mediaType,
+          roomId: roomId,
+        ),
+      );
+
+  /// Upload a file and send it as a message. Optional [text] is a caption
+  /// attached in the same message (parity with Angular UI Kit).
   Future<Message> sendFileMessage(
     String roomId, {
     required List<int> bytes,
     required String filename,
     required String mediaType,
+    String? text,
     String? clientMessageId,
     String? parentMessageId,
     String? senderId,
-  }) =>
-      requireClient().sendFileMessage(
+  }) async {
+    final caption = text?.trim();
+    if (caption == null || caption.isEmpty) {
+      return requireClient().sendFileMessage(
         roomId,
         bytes: Uint8List.fromList(bytes),
         filename: filename,
@@ -104,4 +124,30 @@ class SendsarChatService {
         parentMessageId: parentMessageId,
         senderId: senderId,
       );
+    }
+
+    final uploaded = await uploadFile(
+      roomId,
+      bytes: bytes,
+      filename: filename,
+      mediaType: mediaType,
+    );
+    return sendMessage(
+      roomId,
+      SendMessageParams(
+        senderId: senderId,
+        clientMessageId: clientMessageId,
+        parentMessageId: parentMessageId,
+        parts: [
+          MessagePart(
+            type: 'file',
+            uploadId: uploaded.uploadId,
+            mediaType: uploaded.mediaType,
+            filename: uploaded.filename,
+          ),
+          MessagePart(type: 'text', text: caption),
+        ],
+      ),
+    );
+  }
 }

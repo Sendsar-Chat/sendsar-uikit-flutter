@@ -21,6 +21,9 @@ const demoUsers = [
 ///
 /// Default port is 4400 (see `sample-bff/.env.example`).
 /// Override: `flutter run --dart-define=BFF_BASE_URL=http://localhost:4400`
+///
+/// Android emulator → host machine: `http://10.0.2.2:4400`
+/// Physical device → your LAN IP: `http://192.168.x.x:4400`
 const bffBaseUrl = String.fromEnvironment(
   'BFF_BASE_URL',
   defaultValue: 'http://localhost:4400',

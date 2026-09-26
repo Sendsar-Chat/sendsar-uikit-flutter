@@ -23,6 +23,16 @@ String notoLottieUrl(String emoji) {
   return '$notoLottieBase/${emojiToCodepointKey(emoji)}/lottie.json';
 }
 
+/// Static PNG URL (avoids Flutter web CanvasKit "missing Noto fonts" warnings).
+String notoEmojiPngUrl(String emoji, {int size = 72}) {
+  final clamped = size <= 32
+      ? 32
+      : size <= 72
+          ? 72
+          : 128;
+  return '$notoLottieBase/${emojiToCodepointKey(emoji)}/$clamped.png';
+}
+
 Future<Set<String>?> _loadNotoAnimationIndex() {
   return _notoIndexFuture ??= () async {
     try {

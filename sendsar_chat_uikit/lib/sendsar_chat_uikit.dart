@@ -8,6 +8,7 @@ export 'src/services/sendsar_session_service.dart';
 export 'src/theme/sendsar_chat_theme.dart';
 export 'src/theme/sendsar_styles.dart';
 export 'src/utils/call_tones.dart';
+export 'src/utils/emoji_groups.dart';
 export 'src/utils/emoji_segments.dart';
 export 'src/utils/format_time.dart';
 export 'src/utils/message_parts.dart';

@@ -3,7 +3,10 @@ import 'package:lottie/lottie.dart';
 
 import '../utils/noto_emoji.dart';
 
-/// Renders a Noto animated emoji when available, otherwise static text.
+/// Renders a Noto animated emoji when available, otherwise a Noto PNG.
+///
+/// Using PNG (instead of [Text]) avoids Flutter web CanvasKit warnings about
+/// missing Noto fonts for emoji glyphs.
 class SendsarAnimatedEmoji extends StatefulWidget {
   const SendsarAnimatedEmoji({
     super.key,
@@ -14,6 +17,8 @@ class SendsarAnimatedEmoji extends StatefulWidget {
 
   final String emoji;
   final double size;
+
+  /// When true, prefer Noto Lottie animation when hosted for this emoji.
   final bool enabled;
 
   @override
@@ -52,25 +57,44 @@ class _SendsarAnimatedEmojiState extends State<SendsarAnimatedEmoji> {
 
   @override
   Widget build(BuildContext context) {
-    if (_useAnimation && widget.enabled) {
-      return SizedBox(
-        width: widget.size,
-        height: widget.size,
-        child: Lottie.network(
-          notoLottieUrl(widget.emoji),
-          fit: BoxFit.contain,
-          repeat: true,
-          errorBuilder: (_, __, ___) => _static(),
-        ),
-      );
-    }
-    return _static();
+    final size = widget.size;
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Center(
+        child: _useAnimation && widget.enabled
+            ? ClipRect(
+                child: Lottie.network(
+                  notoLottieUrl(widget.emoji),
+                  width: size,
+                  height: size,
+                  fit: BoxFit.contain,
+                  repeat: true,
+                  errorBuilder: (_, __, ___) => _staticImage(),
+                ),
+              )
+            : _staticImage(),
+      ),
+    );
   }
 
-  Widget _static() {
-    return Text(
-      widget.emoji,
-      style: TextStyle(fontSize: widget.size * 0.85, height: 1),
+  Widget _staticImage() {
+    final size = widget.size;
+    return Image.network(
+      notoEmojiPngUrl(widget.emoji, size: size.round()),
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.medium,
+      errorBuilder: (_, __, ___) => Text(
+        widget.emoji,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: size * 0.85,
+          height: 1,
+          leadingDistribution: TextLeadingDistribution.even,
+        ),
+      ),
     );
   }
 }
