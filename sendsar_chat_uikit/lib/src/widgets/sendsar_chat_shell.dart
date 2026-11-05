@@ -505,7 +505,9 @@ class SendsarChatShellState extends State<SendsarChatShell> {
       return const Center(child: Text('Chat is offline.'));
     }
 
-    return DecoratedBox(
+    return SafeArea
+    (
+      child: DecoratedBox(
       decoration: theme.shellDecoration,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
@@ -639,7 +641,7 @@ class SendsarChatShellState extends State<SendsarChatShell> {
           ],
         ),
       ),
-    );
+    ));
   }
 }
 
