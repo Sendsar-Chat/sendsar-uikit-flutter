@@ -29,6 +29,7 @@ class SendsarChatShell extends StatefulWidget {
     this.messageListStyle,
     this.conversationItemBuilder,
     this.messageBubbleBuilder,
+    this.onBack,
   });
 
   final List<UserDirectoryEntry> users;
@@ -37,6 +38,9 @@ class SendsarChatShell extends StatefulWidget {
   final SendsarMessageListStyle? messageListStyle;
   final SendsarConversationItemBuilder? conversationItemBuilder;
   final SendsarMessageBubbleBuilder? messageBubbleBuilder;
+
+  /// When set, the thread back arrow calls this instead of showing the inbox.
+  final VoidCallback? onBack;
 
   @override
   State<SendsarChatShell> createState() => SendsarChatShellState();
@@ -459,6 +463,10 @@ class SendsarChatShellState extends State<SendsarChatShell> {
             onlineUserIds: _onlineUserIds,
             title: _roomTitle(),
             onClose: () => Navigator.pop(ctx),
+            onBackToList: () {
+              Navigator.pop(ctx);
+              setState(() => _mobileShowThread = false);
+            },
             onConversationDeleted: (id) {
               Navigator.pop(ctx);
               _onRoomDeleted(id);
@@ -567,9 +575,11 @@ class SendsarChatShellState extends State<SendsarChatShell> {
                                             title: _roomTitle(),
                                             subtitle: _headerSubtitle(),
                                             typing: _typingLabel().isNotEmpty,
-                                            showBack: isNarrow,
-                                            onBack: () => setState(() =>
-                                                _mobileShowThread = false),
+                                            showBack:
+                                                isNarrow || widget.onBack != null,
+                                            onBack: widget.onBack ??
+                                                () => setState(() =>
+                                                    _mobileShowThread = false),
                                             onInfo: () => _openRoomInfo(
                                                 context, isNarrow),
                                             onAudioCall: calls.showCallUi
@@ -619,6 +629,10 @@ class SendsarChatShellState extends State<SendsarChatShell> {
                                   title: _roomTitle(),
                                   onClose: () =>
                                       setState(() => _showInfoPanel = false),
+                                  onBackToList: () => setState(() {
+                                    _showInfoPanel = false;
+                                    _mobileShowThread = false;
+                                  }),
                                   onConversationDeleted: _onRoomDeleted,
                                   onHistoryCleared: _onHistoryCleared,
                                 ),
@@ -752,28 +766,31 @@ class _ThreadHeader extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title,
                     style: theme.titleStyle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
-                Text(
-                  subtitle,
-                  style: typing ? theme.typingStyle : theme.subtitleStyle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                if (subtitle.isNotEmpty)
+                  Text(
+                    subtitle,
+                    style: typing ? theme.typingStyle : theme.subtitleStyle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
               ],
             ),
           ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.all(8),
-            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-            onPressed: () {},
-            icon: const Icon(Icons.search, size: 22),
-          ),
+          // IconButton(
+          //   visualDensity: VisualDensity.compact,
+          //   padding: const EdgeInsets.all(8),
+          //   constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+          //   onPressed: () {},
+          //   icon: const Icon(Icons.search, size: 22),
+          // ),
           IconButton(
             visualDensity: VisualDensity.compact,
             padding: const EdgeInsets.all(8),

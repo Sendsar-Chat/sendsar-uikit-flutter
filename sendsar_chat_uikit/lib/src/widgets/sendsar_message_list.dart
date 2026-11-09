@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:gal/gal.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:sendsar_chat/sendsar_chat.dart';
 
@@ -16,6 +18,7 @@ import '../utils/room_thread_cache.dart';
 import '../utils/user_directory.dart';
 import 'sendsar_call_log_bubble.dart';
 import 'sendsar_animated_emoji.dart';
+import 'sendsar_location_map.dart';
 import 'sendsar_message_text.dart';
 
 const _quickReactions = ['👍', '❤️', '😂', '🎉'];
@@ -878,6 +881,7 @@ class _MessageBubble extends StatelessWidget {
     final radius = listStyle?.bubbleRadius ?? 12.0;
     final timeLabel = formatMessageHeaderTime(createdAt);
     final displayName = isSelf ? '$senderName (Me)' : senderName;
+    final hasLocation = parseLocationPart(message.parts) != null;
 
     final reactions = <String, int>{};
     for (final r in message.reactions ?? const []) {
@@ -953,9 +957,12 @@ class _MessageBubble extends StatelessWidget {
                       isSelf ? Alignment.centerRight : Alignment.centerLeft,
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
-                      maxWidth: MediaQuery.sizeOf(context).width * 0.5,
+                      maxWidth: hasLocation
+                          ? 280
+                          : MediaQuery.sizeOf(context).width * 0.5,
                     ),
-                    child: IntrinsicWidth(
+                    child: _FitBubble(
+                      expand: hasLocation,
                       child: GestureDetector(
                         onLongPress: editing
                             ? null
@@ -1032,8 +1039,9 @@ class _MessageBubble extends StatelessWidget {
                                           ],
                                         ),
                                       ),
-                                    // Attachments first, then caption — matches Angular.
-                                    ..._attachmentWidgets(message, fg),
+                                    // Map iframe, then attachments, then caption.
+                                    ..._locationWidgets(message),
+                                    ..._attachmentWidgets(context, message, fg),
                                     if (preview.isNotEmpty)
                                       Padding(
                                         padding: EdgeInsets.only(
@@ -1136,7 +1144,29 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
-  List<Widget> _attachmentWidgets(Message message, Color fg) {
+  List<Widget> _locationWidgets(Message message) {
+    final location = parseLocationPart(message.parts);
+    if (location == null) return const [];
+    return [
+      ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          height: 160,
+          width: double.infinity,
+          child: SendsarLocationMap(
+            latitude: location.latitude,
+            longitude: location.longitude,
+          ),
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _attachmentWidgets(
+    BuildContext context,
+    Message message,
+    Color fg,
+  ) {
     final imageHeight = listStyle?.imageHeight ?? 160.0;
     final widgets = <Widget>[];
     final inverted = isSelf;
@@ -1147,27 +1177,30 @@ class _MessageBubble extends StatelessWidget {
         widgets.add(
           Padding(
             padding: const EdgeInsets.only(top: 6),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: imageHeight,
-                  maxWidth: 280,
-                ),
-                child: CachedNetworkImage(
-                  imageUrl: url,
-                  fit: BoxFit.cover,
-                  placeholder: (_, __) => SizedBox(
-                    height: imageHeight,
-                    width: 180,
-                    child: ColoredBox(color: theme.skeletonMuted),
+            child: GestureDetector(
+              onTap: () => _showImageDialog(context, url),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: imageHeight,
+                    maxWidth: 280,
                   ),
-                  errorWidget: (_, __, ___) => _FilePreviewChip(
-                    name: part.filename ?? 'Image',
-                    mediaType: part.mediaType ?? '',
-                    theme: theme,
-                    inverted: inverted,
-                    fg: fg,
+                  child: CachedNetworkImage(
+                    imageUrl: url,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => SizedBox(
+                      height: imageHeight,
+                      width: 180,
+                      child: ColoredBox(color: theme.skeletonMuted),
+                    ),
+                    errorWidget: (_, __, ___) => _FilePreviewChip(
+                      name: part.filename ?? 'Image',
+                      mediaType: part.mediaType ?? '',
+                      theme: theme,
+                      inverted: inverted,
+                      fg: fg,
+                    ),
                   ),
                 ),
               ),
@@ -1191,6 +1224,146 @@ class _MessageBubble extends StatelessWidget {
       }
     }
     return widgets;
+  }
+}
+
+void _showImageDialog(BuildContext context, String url) {
+  showDialog<void>(
+    context: context,
+    builder: (_) => _ImagePreviewDialog(url: url),
+  );
+}
+
+class _ImagePreviewDialog extends StatefulWidget {
+  const _ImagePreviewDialog({required this.url});
+
+  final String url;
+
+  @override
+  State<_ImagePreviewDialog> createState() => _ImagePreviewDialogState();
+}
+
+class _ImagePreviewDialogState extends State<_ImagePreviewDialog> {
+  bool _saving = false;
+  String? _notice;
+
+  Future<void> _download() async {
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+      _notice = null;
+    });
+    try {
+      final access = await Gal.hasAccess();
+      if (!access) {
+        final granted = await Gal.requestAccess();
+        if (!granted) {
+          throw StateError('Photo access was denied');
+        }
+      }
+      final response = await http.get(Uri.parse(widget.url));
+      if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
+        throw StateError('Could not download the image');
+      }
+      await Gal.putImageBytes(
+        response.bodyBytes,
+        name: 'chat-${DateTime.now().millisecondsSinceEpoch}',
+      );
+      if (!mounted) return;
+      setState(() => _notice = 'Saved to gallery');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _notice = 'Could not save image');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    return Dialog(
+      backgroundColor: Colors.black,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+      child: SizedBox(
+        width: size.width,
+        height: size.height * 0.7,
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              minScale: 1,
+              maxScale: 4,
+              child: CachedNetworkImage(
+                imageUrl: widget.url,
+                width: size.width,
+                height: size.height * 0.7,
+                fit: BoxFit.contain,
+                placeholder: (_, __) => const Center(
+                  child: CircularProgressIndicator(),
+                ),
+                errorWidget: (_, __, ___) => const Icon(
+                  Icons.broken_image_outlined,
+                  color: Colors.white,
+                  size: 48,
+                ),
+              ),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: 'Download',
+                    onPressed: _saving ? null : _download,
+                    icon: _saving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.download, color: Colors.white),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+            if (_notice != null)
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 12,
+                child: Text(
+                  _notice!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FitBubble extends StatelessWidget {
+  const _FitBubble({required this.expand, required this.child});
+
+  final bool expand;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (expand) return SizedBox(width: double.infinity, child: child);
+    return IntrinsicWidth(child: child);
   }
 }
 

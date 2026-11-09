@@ -19,6 +19,7 @@ class SendsarSessionService extends ChangeNotifier {
   final SendsarConfig _config;
   late final SessionManager _manager;
   late SessionManagerState _state;
+  bool _disposed = false;
 
   SessionManagerState get state => _state;
   SendsarClient? get client => _state.client;
@@ -31,12 +32,14 @@ class SendsarSessionService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     _manager.stop();
     super.dispose();
   }
 
   void _onStateChange(SessionManagerState next) {
     _state = next;
+    if (_disposed) return;
     notifyListeners();
   }
 }

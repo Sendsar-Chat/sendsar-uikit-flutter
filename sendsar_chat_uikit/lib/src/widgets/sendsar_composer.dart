@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:sendsar_chat/sendsar_chat.dart';
 import 'package:uuid/uuid.dart';
@@ -146,6 +147,73 @@ class _SendsarComposerState extends State<SendsarComposer> {
     } catch (err) {
       setState(() {
         _error = err is Exception ? err.toString() : 'Failed to send';
+      });
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _shareCurrentLocation() async {
+    if (_sending) return;
+    setState(() {
+      _sending = true;
+      _error = null;
+      _showEmojiPicker = false;
+    });
+
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        throw StateError('Turn on location services to share your position');
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        throw StateError(
+          'Location permission is required to share your position',
+        );
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 20),
+        ),
+      );
+      if (!mounted) return;
+
+      final latitude = position.latitude;
+      final longitude = position.longitude;
+      await context.read<SendsarChatService>().sendMessage(
+            widget.roomId,
+            SendMessageParams(
+              parts: [
+                MessagePart(
+                  type: locationPartType,
+                  data: {
+                    'latitude': latitude,
+                    'longitude': longitude,
+                    'embedUrl': locationMapEmbedUrl(latitude, longitude),
+                    'iframe': locationIframeMarkup(latitude, longitude),
+                  },
+                ),
+              ],
+              clientMessageId: _uuid.v4(),
+            ),
+          );
+      if (!mounted) return;
+      widget.onSent?.call();
+    } catch (err) {
+      if (!mounted) return;
+      setState(() {
+        _error = err is StateError
+            ? err.message
+            : err is TimeoutException
+                ? 'Could not find your current location'
+                : 'Failed to share location';
       });
     } finally {
       if (mounted) setState(() => _sending = false);
@@ -302,6 +370,13 @@ class _SendsarComposerState extends State<SendsarComposer> {
                         _ComposerToolButton(
                           icon: Icons.attach_file,
                           onPressed: _sending ? null : () => unawaited(_pickFile()),
+                          theme: theme,
+                        ),
+                        _ComposerToolButton(
+                          icon: Icons.location_on,
+                          onPressed: _sending
+                              ? null
+                              : () => unawaited(_shareCurrentLocation()),
                           theme: theme,
                         ),
                         const Spacer(),
