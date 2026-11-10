@@ -57,6 +57,10 @@ class SendsarChatShellState extends State<SendsarChatShell> {
   bool _showInfoPanel = true;
   bool _realtimeWired = false;
   int _messageListEpoch = 0;
+  String? _editingMessageId;
+  String? _editingText;
+  String? _editingImageUrl;
+  List<MessagePart> _editingFileParts = const [];
   TenantPresenceTracker? _presenceTracker;
   Timer? _reloadTimer;
   final List<void Function()> _unsubscribers = [];
@@ -289,8 +293,44 @@ class SendsarChatShellState extends State<SendsarChatShell> {
     });
   }
 
+  void _beginEdit(Message message) {
+    String? imageUrl;
+    for (final part in fileParts(message.parts)) {
+      if (!isImagePart(part)) continue;
+      imageUrl = filePartUrl(part);
+      if (imageUrl != null) break;
+    }
+    setState(() {
+      _editingMessageId = message.id;
+      _editingText = textFromMessageParts(message.parts);
+      _editingImageUrl = imageUrl;
+      _editingFileParts = fileParts(message.parts);
+    });
+  }
+
+  void _clearEdit() {
+    if (_editingMessageId == null &&
+        _editingText == null &&
+        _editingImageUrl == null &&
+        _editingFileParts.isEmpty) {
+      return;
+    }
+    setState(() {
+      _editingMessageId = null;
+      _editingText = null;
+      _editingImageUrl = null;
+      _editingFileParts = const [];
+    });
+  }
+
   void _onRoomSelect(RoomSummary room) {
     setState(() {
+      if (_selectedRoom?.id != room.id) {
+        _editingMessageId = null;
+        _editingText = null;
+        _editingImageUrl = null;
+        _editingFileParts = const [];
+      }
       _selectedRoom = room;
       _mobileShowThread = true;
       _showInfoPanel = true;
@@ -607,10 +647,16 @@ class SendsarChatShellState extends State<SendsarChatShell> {
                                               bubbleBuilder:
                                                   widget.messageBubbleBuilder,
                                               onCallRedial: _onCallRedial,
+                                              onEditMessage: _beginEdit,
                                             ),
                                           ),
                                           SendsarComposer(
                                             roomId: selected.id,
+                                            editingMessageId: _editingMessageId,
+                                            editingText: _editingText,
+                                            editingImageUrl: _editingImageUrl,
+                                            editingFileParts: _editingFileParts,
+                                            onCancelEdit: _clearEdit,
                                             onSent: _scheduleSidebarReload,
                                           ),
                                         ],

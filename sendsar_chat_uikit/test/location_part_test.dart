@@ -80,4 +80,23 @@ void main() {
     );
     expect(messagePreview(message), 'Location');
   });
+
+  test('message preview labels a voice message', () {
+    final message = Message(
+      id: 'm2',
+      roomId: 'room',
+      senderId: 'admin',
+      parts: [
+        MessagePart(
+          type: 'file',
+          filename: 'voice-message-1.m4a',
+          mediaType: 'audio/mp4',
+          url: 'https://cdn.example/voice-message-1.m4a',
+        ),
+      ],
+      previewText: null,
+      createdAt: '2026-11-09T00:00:00Z',
+    );
+    expect(messagePreview(message), 'Voice message');
+  });
 }

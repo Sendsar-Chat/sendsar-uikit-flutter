@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:provider/provider.dart';
 import 'package:sendsar_chat/sendsar_chat.dart';
@@ -14,6 +18,7 @@ import '../theme/sendsar_chat_theme.dart';
 import '../utils/emoji_groups.dart';
 import '../utils/message_parts.dart';
 import 'sendsar_animated_emoji.dart';
+import 'sendsar_voice_message.dart';
 
 const _toolSize = 40.0;
 const _sendSize = 40.0;
@@ -23,13 +28,19 @@ class _PendingFile {
     required this.bytes,
     required this.name,
     required this.mediaType,
+    this.durationSeconds,
   });
 
   final Uint8List bytes;
   final String name;
   final String mediaType;
+  final int? durationSeconds;
 
   bool get isImage => isImageMediaType(mediaType, name);
+
+  bool get isVoice =>
+      mediaType.startsWith('audio/') ||
+      name.toLowerCase().startsWith('voice-message-');
 }
 
 class SendsarComposer extends StatefulWidget {
@@ -37,10 +48,20 @@ class SendsarComposer extends StatefulWidget {
     super.key,
     required this.roomId,
     this.onSent,
+    this.editingMessageId,
+    this.editingText,
+    this.editingImageUrl,
+    this.editingFileParts = const [],
+    this.onCancelEdit,
   });
 
   final String roomId;
   final VoidCallback? onSent;
+  final String? editingMessageId;
+  final String? editingText;
+  final String? editingImageUrl;
+  final List<MessagePart> editingFileParts;
+  final VoidCallback? onCancelEdit;
 
   @override
   State<SendsarComposer> createState() => _SendsarComposerState();
@@ -51,6 +72,12 @@ class _SendsarComposerState extends State<SendsarComposer> {
   final _focusNode = FocusNode();
   ComposerTypingController? _typingController;
   bool _sending = false;
+  bool _recording = false;
+  int _recordSeconds = 0;
+  DateTime? _recordStarted;
+  Timer? _recordTimer;
+  Future<void>? _voiceStart;
+  final _recorder = AudioRecorder();
   bool _showEmojiPicker = false;
   String? _error;
   _PendingFile? _pendingFile;
@@ -70,11 +97,29 @@ class _SendsarComposerState extends State<SendsarComposer> {
       _showEmojiPicker = false;
       _clearPendingFile();
       _bindTyping();
+      if (_recording) unawaited(_finishVoice(send: false));
+    }
+    final startedEdit = widget.editingMessageId != null &&
+        (widget.editingMessageId != oldWidget.editingMessageId ||
+            widget.editingText != oldWidget.editingText);
+    if (startedEdit) {
+      _clearPendingFile();
+      _controller.text = widget.editingText ?? '';
+      _controller.selection =
+          TextSelection.collapsed(offset: _controller.text.length);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focusNode.requestFocus();
+      });
+    } else if (oldWidget.editingMessageId != null &&
+        widget.editingMessageId == null) {
+      _controller.clear();
     }
   }
 
   @override
   void dispose() {
+    _recordTimer?.cancel();
+    unawaited(_recorder.dispose());
     _typingController?.dispose();
     _controller.dispose();
     _focusNode.dispose();
@@ -100,14 +145,113 @@ class _SendsarComposerState extends State<SendsarComposer> {
     _pendingFile = null;
   }
 
+  bool get _showVoice =>
+      !_sending &&
+      widget.editingMessageId == null &&
+      _controller.text.trim().isEmpty &&
+      _pendingFile == null;
+
+  void _holdVoice() {
+    _voiceStart = _startVoice();
+  }
+
+  Future<void> _releaseVoice({required bool send}) async {
+    await _voiceStart;
+    await _finishVoice(send: send);
+  }
+
+  Future<void> _startVoice() async {
+    if (_recording || _sending || widget.roomId.isEmpty) return;
+    try {
+      if (!await _recorder.hasPermission()) {
+        if (!mounted) return;
+        setState(() => _error = 'Microphone permission is required');
+        return;
+      }
+      final dir = await getTemporaryDirectory();
+      final path =
+          '${dir.path}/voice-message-${DateTime.now().millisecondsSinceEpoch}.m4a';
+      await _recorder.start(
+        const RecordConfig(encoder: AudioEncoder.aacLc),
+        path: path,
+      );
+      if (!mounted) {
+        await _recorder.stop();
+        return;
+      }
+      _recordTimer?.cancel();
+      _recordStarted = DateTime.now();
+      setState(() {
+        _recording = true;
+        _recordSeconds = 0;
+        _error = null;
+        _showEmojiPicker = false;
+      });
+      _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        setState(() => _recordSeconds++);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = 'Could not start recording');
+    }
+  }
+
+  Future<void> _finishVoice({required bool send}) async {
+    _recordTimer?.cancel();
+    _recordTimer = null;
+    if (!await _recorder.isRecording()) {
+      if (mounted && _recording) setState(() => _recording = false);
+      return;
+    }
+    final path = await _recorder.stop();
+    final started = _recordStarted;
+    final held = started == null
+        ? Duration.zero
+        : DateTime.now().difference(started);
+    if (mounted) {
+      setState(() => _recording = false);
+    }
+    if (path == null) return;
+    final file = File(path);
+    if (!send || held < const Duration(milliseconds: 400) || !await file.exists()) {
+      if (await file.exists()) await file.delete();
+      return;
+    }
+    final bytes = await file.readAsBytes();
+    await file.delete();
+    if (bytes.isEmpty || !mounted) return;
+
+    final seconds = (held.inMilliseconds / 1000).round().clamp(1, 86400);
+    setState(() {
+      _pendingFile = _PendingFile(
+        bytes: bytes,
+        name: 'voice-message-${DateTime.now().millisecondsSinceEpoch}.m4a',
+        mediaType: 'audio/mp4',
+        durationSeconds: seconds,
+      );
+      _error = null;
+      _showEmojiPicker = false;
+    });
+    _focusNode.requestFocus();
+  }
+
   bool get _canSend =>
       !_sending &&
-      (_controller.text.trim().isNotEmpty || _pendingFile != null);
+      (_controller.text.trim().isNotEmpty ||
+          _pendingFile != null ||
+          (widget.editingMessageId != null &&
+              widget.editingFileParts.isNotEmpty));
 
   Future<void> _submit() async {
     final body = _controller.text.trim();
     final pending = _pendingFile;
-    if ((body.isEmpty && pending == null) || _sending) return;
+    final editingFiles = widget.editingMessageId != null;
+    if ((body.isEmpty && pending == null &&
+            !(editingFiles && widget.editingFileParts.isNotEmpty)) ||
+        _sending) {
+      return;
+    }
 
     setState(() {
       _sending = true;
@@ -119,7 +263,26 @@ class _SendsarComposerState extends State<SendsarComposer> {
       final chat = context.read<SendsarChatService>();
       final clientMessageId = _uuid.v4();
 
-      if (pending != null) {
+      final editingId = widget.editingMessageId;
+      if (editingId != null) {
+        final parts = <MessagePart>[
+          for (final part in widget.editingFileParts)
+            MessagePart(
+              type: 'file',
+              mediaType: part.mediaType,
+              uploadId: part.uploadId,
+              url: part.url,
+              filename: part.filename,
+            ),
+          if (body.isNotEmpty) MessagePart(type: 'text', text: body),
+        ];
+        if (parts.isEmpty) return;
+        await chat.updateMessage(
+          widget.roomId,
+          editingId,
+          UpdateMessageParams(parts: parts),
+        );
+      } else if (pending != null) {
         await chat.sendFileMessage(
           widget.roomId,
           bytes: pending.bytes,
@@ -143,6 +306,7 @@ class _SendsarComposerState extends State<SendsarComposer> {
         _showEmojiPicker = false;
         _clearPendingFile();
       });
+      if (editingId != null) widget.onCancelEdit?.call();
       widget.onSent?.call();
     } catch (err) {
       setState(() {
@@ -294,7 +458,24 @@ class _SendsarComposerState extends State<SendsarComposer> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (pending != null)
+                  if (pending != null && pending.isVoice)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 10, 4, 0),
+                      child: SendsarVoiceMessage(
+                        key: ValueKey(pending.name),
+                        bytes: pending.bytes,
+                        mimeType: pending.mediaType,
+                        durationSeconds: pending.durationSeconds,
+                        recordedAt: '',
+                        theme: theme,
+                        outgoing: false,
+                        onRemove: () {
+                          if (_sending) return;
+                          setState(_clearPendingFile);
+                        },
+                      ),
+                    )
+                  else if (pending != null)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(10, 10, 10, 0),
                       child: _PendingFilePreview(
@@ -331,6 +512,79 @@ class _SendsarComposerState extends State<SendsarComposer> {
                         ],
                       ),
                     ),
+                  if (widget.editingMessageId != null)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 8, 2, 0),
+                      child: Row(
+                        children: [
+                          if (widget.editingImageUrl != null) ...[
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(6),
+                              child: CachedNetworkImage(
+                                imageUrl: widget.editingImageUrl!,
+                                width: 40,
+                                height: 40,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Edit Message',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: theme.accent,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.15,
+                                  ),
+                                ),
+                                if ((widget.editingText ?? '').isNotEmpty)
+                                  Text(
+                                    widget.editingText!,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: theme.textPrimary,
+                                      fontSize: 14,
+                                      height: 1.2,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          IconButton(
+                            tooltip: 'Cancel edit',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: _sending ? null : widget.onCancelEdit,
+                            icon: Icon(Icons.close, size: 18, color: theme.textMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (_recording)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+                      child: Row(
+                        children: [
+                          Icon(Icons.fiber_manual_record, size: 12, color: theme.error),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Recording ${_recordSeconds ~/ 60}:${(_recordSeconds % 60).toString().padLeft(2, '0')}',
+                            style: TextStyle(
+                              color: theme.error,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (!_recording)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
                     child: TextField(
@@ -342,9 +596,7 @@ class _SendsarComposerState extends State<SendsarComposer> {
                       textInputAction: TextInputAction.newline,
                       onChanged: _onTextChanged,
                       decoration: InputDecoration(
-                        hintText: pending != null
-                            ? 'Add a caption…'
-                            : 'Message',
+                        hintText: pending != null ? 'Add a caption…' : 'Message',
                         border: InputBorder.none,
                         isDense: true,
                         contentPadding: EdgeInsets.zero,
@@ -382,10 +634,20 @@ class _SendsarComposerState extends State<SendsarComposer> {
                         const Spacer(),
                         _SendButton(
                           size: _sendSize,
-                          enabled: _canSend,
+                          enabled: _canSend || _showVoice,
                           loading: _sending,
+                          voice: _showVoice,
+                          recording: _recording,
                           onPressed:
                               _canSend ? () => unawaited(_submit()) : null,
+                          onVoiceStart:
+                              _showVoice ? _holdVoice : null,
+                          onVoiceEnd: _showVoice
+                              ? () => unawaited(_releaseVoice(send: true))
+                              : null,
+                          onVoiceCancel: _showVoice
+                              ? () => unawaited(_releaseVoice(send: false))
+                              : null,
                           theme: theme,
                         ),
                       ],
@@ -516,34 +778,63 @@ class _ComposerToolButton extends StatelessWidget {
   }
 }
 
-class _SendButton extends StatelessWidget {
+class _SendButton extends StatefulWidget {
   const _SendButton({
     required this.size,
     required this.enabled,
     required this.loading,
     required this.theme,
+    this.voice = false,
+    this.recording = false,
     this.onPressed,
+    this.onVoiceStart,
+    this.onVoiceEnd,
+    this.onVoiceCancel,
   });
 
   final double size;
   final bool enabled;
   final bool loading;
+  final bool voice;
+  final bool recording;
   final SendsarChatTheme theme;
   final VoidCallback? onPressed;
+  final VoidCallback? onVoiceStart;
+  final VoidCallback? onVoiceEnd;
+  final VoidCallback? onVoiceCancel;
+
+  @override
+  State<_SendButton> createState() => _SendButtonState();
+}
+
+class _SendButtonState extends State<_SendButton> {
+  void _start(LongPressStartDetails _) => widget.onVoiceStart?.call();
+
+  void _end(LongPressEndDetails _) => widget.onVoiceEnd?.call();
+
+  void _cancel() => widget.onVoiceCancel?.call();
 
   @override
   Widget build(BuildContext context) {
+    final theme = widget.theme;
+    final voiceHold = widget.voice || widget.recording;
     return SizedBox(
-      width: size,
-      height: size,
+      width: widget.size,
+      height: widget.size,
       child: Material(
-        color: enabled ? theme.accent : theme.accent.withValues(alpha: 0.45),
+        color: widget.recording
+            ? theme.error
+            : widget.enabled
+                ? theme.accent
+                : theme.accent.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(10),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(10),
+        child: GestureDetector(
+          onTap: widget.voice ? null : widget.onPressed,
+          onLongPressStart: voiceHold ? _start : null,
+          onLongPressEnd: voiceHold ? _end : null,
+          onLongPressCancel: voiceHold ? _cancel : null,
           child: Center(
-            child: loading
+            child: widget.loading
                 ? SizedBox(
                     width: 18,
                     height: 18,
@@ -552,7 +843,11 @@ class _SendButton extends StatelessWidget {
                       color: theme.bubbleSelfText,
                     ),
                   )
-                : Icon(Icons.send, size: 20, color: theme.bubbleSelfText),
+                : Icon(
+                    widget.voice || widget.recording ? Icons.mic : Icons.send,
+                    size: 20,
+                    color: theme.bubbleSelfText,
+                  ),
           ),
         ),
       ),

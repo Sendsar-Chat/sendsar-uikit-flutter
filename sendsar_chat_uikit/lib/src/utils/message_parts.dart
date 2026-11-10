@@ -284,6 +284,7 @@ String messagePreview(
   final text = textFromMessageParts(message.parts);
   if (text.isNotEmpty) return text;
   if (parseLocationPart(message.parts) != null) return 'Location';
+  if (fileParts(message.parts).any(isAudioPart)) return 'Voice message';
   if (fileParts(message.parts).isNotEmpty) return 'Attachment';
   return message.previewText ?? '';
 }
