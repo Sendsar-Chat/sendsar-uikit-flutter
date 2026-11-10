@@ -23,7 +23,24 @@ import 'sendsar_location_map.dart';
 import 'sendsar_message_text.dart';
 import 'sendsar_voice_message.dart';
 
-const _quickReactions = ['👍', '❤️', '😂', '🎉'];
+const _quickReactions = [
+  '👍',
+  '❤️',
+  '😂',
+  '🔥',
+  '🙏',
+  '👏',
+  '😭',
+  '😍',
+  '🎉',
+  '😊',
+  '😮',
+  '😢',
+  '💯',
+  '🤔',
+  '👎',
+  '🥰',
+];
 
 class SendsarMessageList extends StatefulWidget {
   const SendsarMessageList({
@@ -1043,20 +1060,21 @@ class _MessageBubble extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Wrap(
+                  alignment: WrapAlignment.center,
                   children: [
                     for (final emoji in _quickReactions)
                       IconButton(
                         tooltip: 'React with $emoji',
+                        visualDensity: VisualDensity.compact,
                         onPressed: () {
                           Navigator.pop(sheetContext);
                           onReact(emoji);
                         },
                         icon: SendsarAnimatedEmoji(
                           emoji: emoji,
-                          size: 28,
+                          size: 26,
                           enabled: false,
                         ),
                       ),
