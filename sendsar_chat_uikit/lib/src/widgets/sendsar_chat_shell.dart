@@ -29,6 +29,7 @@ class SendsarChatShell extends StatefulWidget {
     this.messageListStyle,
     this.conversationItemBuilder,
     this.messageBubbleBuilder,
+    this.onBack,
   });
 
   final List<UserDirectoryEntry> users;
@@ -37,6 +38,9 @@ class SendsarChatShell extends StatefulWidget {
   final SendsarMessageListStyle? messageListStyle;
   final SendsarConversationItemBuilder? conversationItemBuilder;
   final SendsarMessageBubbleBuilder? messageBubbleBuilder;
+
+  /// When set, the thread back arrow calls this instead of showing the inbox.
+  final VoidCallback? onBack;
 
   @override
   State<SendsarChatShell> createState() => SendsarChatShellState();
@@ -53,6 +57,10 @@ class SendsarChatShellState extends State<SendsarChatShell> {
   bool _showInfoPanel = true;
   bool _realtimeWired = false;
   int _messageListEpoch = 0;
+  String? _editingMessageId;
+  String? _editingText;
+  String? _editingImageUrl;
+  List<MessagePart> _editingFileParts = const [];
   TenantPresenceTracker? _presenceTracker;
   Timer? _reloadTimer;
   final List<void Function()> _unsubscribers = [];
@@ -285,8 +293,44 @@ class SendsarChatShellState extends State<SendsarChatShell> {
     });
   }
 
+  void _beginEdit(Message message) {
+    String? imageUrl;
+    for (final part in fileParts(message.parts)) {
+      if (!isImagePart(part)) continue;
+      imageUrl = filePartUrl(part);
+      if (imageUrl != null) break;
+    }
+    setState(() {
+      _editingMessageId = message.id;
+      _editingText = textFromMessageParts(message.parts);
+      _editingImageUrl = imageUrl;
+      _editingFileParts = fileParts(message.parts);
+    });
+  }
+
+  void _clearEdit() {
+    if (_editingMessageId == null &&
+        _editingText == null &&
+        _editingImageUrl == null &&
+        _editingFileParts.isEmpty) {
+      return;
+    }
+    setState(() {
+      _editingMessageId = null;
+      _editingText = null;
+      _editingImageUrl = null;
+      _editingFileParts = const [];
+    });
+  }
+
   void _onRoomSelect(RoomSummary room) {
     setState(() {
+      if (_selectedRoom?.id != room.id) {
+        _editingMessageId = null;
+        _editingText = null;
+        _editingImageUrl = null;
+        _editingFileParts = const [];
+      }
       _selectedRoom = room;
       _mobileShowThread = true;
       _showInfoPanel = true;
@@ -459,6 +503,10 @@ class SendsarChatShellState extends State<SendsarChatShell> {
             onlineUserIds: _onlineUserIds,
             title: _roomTitle(),
             onClose: () => Navigator.pop(ctx),
+            onBackToList: () {
+              Navigator.pop(ctx);
+              setState(() => _mobileShowThread = false);
+            },
             onConversationDeleted: (id) {
               Navigator.pop(ctx);
               _onRoomDeleted(id);
@@ -505,7 +553,9 @@ class SendsarChatShellState extends State<SendsarChatShell> {
       return const Center(child: Text('Chat is offline.'));
     }
 
-    return DecoratedBox(
+    return SafeArea
+    (
+      child: DecoratedBox(
       decoration: theme.shellDecoration,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
@@ -565,9 +615,11 @@ class SendsarChatShellState extends State<SendsarChatShell> {
                                             title: _roomTitle(),
                                             subtitle: _headerSubtitle(),
                                             typing: _typingLabel().isNotEmpty,
-                                            showBack: isNarrow,
-                                            onBack: () => setState(() =>
-                                                _mobileShowThread = false),
+                                            showBack:
+                                                isNarrow || widget.onBack != null,
+                                            onBack: widget.onBack ??
+                                                () => setState(() =>
+                                                    _mobileShowThread = false),
                                             onInfo: () => _openRoomInfo(
                                                 context, isNarrow),
                                             onAudioCall: calls.showCallUi
@@ -595,10 +647,16 @@ class SendsarChatShellState extends State<SendsarChatShell> {
                                               bubbleBuilder:
                                                   widget.messageBubbleBuilder,
                                               onCallRedial: _onCallRedial,
+                                              onEditMessage: _beginEdit,
                                             ),
                                           ),
                                           SendsarComposer(
                                             roomId: selected.id,
+                                            editingMessageId: _editingMessageId,
+                                            editingText: _editingText,
+                                            editingImageUrl: _editingImageUrl,
+                                            editingFileParts: _editingFileParts,
+                                            onCancelEdit: _clearEdit,
                                             onSent: _scheduleSidebarReload,
                                           ),
                                         ],
@@ -617,6 +675,10 @@ class SendsarChatShellState extends State<SendsarChatShell> {
                                   title: _roomTitle(),
                                   onClose: () =>
                                       setState(() => _showInfoPanel = false),
+                                  onBackToList: () => setState(() {
+                                    _showInfoPanel = false;
+                                    _mobileShowThread = false;
+                                  }),
                                   onConversationDeleted: _onRoomDeleted,
                                   onHistoryCleared: _onHistoryCleared,
                                 ),
@@ -639,7 +701,7 @@ class SendsarChatShellState extends State<SendsarChatShell> {
           ],
         ),
       ),
-    );
+    ));
   }
 }
 
@@ -750,44 +812,47 @@ class _ThreadHeader extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title,
                     style: theme.titleStyle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis),
-                Text(
-                  subtitle,
-                  style: typing ? theme.typingStyle : theme.subtitleStyle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
+                if (subtitle.isNotEmpty)
+                  Text(
+                    subtitle,
+                    style: typing ? theme.typingStyle : theme.subtitleStyle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
               ],
             ),
           ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.all(8),
-            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-            onPressed: () {},
-            icon: const Icon(Icons.search, size: 22),
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.all(8),
-            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-            tooltip: 'Voice call',
-            onPressed: onAudioCall,
-            icon: const Icon(Icons.call, size: 22),
-          ),
-          IconButton(
-            visualDensity: VisualDensity.compact,
-            padding: const EdgeInsets.all(8),
-            constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-            tooltip: 'Video call',
-            onPressed: onVideoCall,
-            icon: const Icon(Icons.videocam, size: 22),
-          ),
+          // IconButton(
+          //   visualDensity: VisualDensity.compact,
+          //   padding: const EdgeInsets.all(8),
+          //   constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+          //   onPressed: () {},
+          //   icon: const Icon(Icons.search, size: 22),
+          // ),
+          // IconButton(
+          //   visualDensity: VisualDensity.compact,
+          //   padding: const EdgeInsets.all(8),
+          //   constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+          //   tooltip: 'Voice call',
+          //   onPressed: onAudioCall,
+          //   icon: const Icon(Icons.call, size: 22),
+          // ),
+          // IconButton(
+          //   visualDensity: VisualDensity.compact,
+          //   padding: const EdgeInsets.all(8),
+          //   constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+          //   tooltip: 'Video call',
+          //   onPressed: onVideoCall,
+          //   icon: const Icon(Icons.videocam, size: 22),
+          // ),
           IconButton(
             visualDensity: VisualDensity.compact,
             padding: const EdgeInsets.all(8),

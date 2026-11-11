@@ -19,6 +19,7 @@ class SendsarRoomInfo extends StatefulWidget {
     required this.onlineUserIds,
     required this.title,
     required this.onClose,
+    this.onBackToList,
     this.onConversationDeleted,
     this.onHistoryCleared,
   });
@@ -29,6 +30,7 @@ class SendsarRoomInfo extends StatefulWidget {
   final Set<String> onlineUserIds;
   final String title;
   final VoidCallback onClose;
+  final VoidCallback? onBackToList;
   final ValueChanged<String>? onConversationDeleted;
   final ValueChanged<String>? onHistoryCleared;
 
@@ -474,6 +476,11 @@ class _SendsarRoomInfoState extends State<SendsarRoomInfo> {
                 const SizedBox(height: 16),
                 Text('Chat actions', style: theme.titleStyle),
                 const SizedBox(height: 8),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Back to list'),
+                  onTap: widget.onBackToList,
+                ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Clear history'),

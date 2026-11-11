@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:gal/gal.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:sendsar_chat/sendsar_chat.dart';
 
@@ -12,13 +14,33 @@ import '../theme/sendsar_chat_theme.dart';
 import '../theme/sendsar_styles.dart';
 import '../utils/format_time.dart';
 import '../utils/message_parts.dart';
+import '../utils/room_label.dart';
 import '../utils/room_thread_cache.dart';
 import '../utils/user_directory.dart';
 import 'sendsar_call_log_bubble.dart';
 import 'sendsar_animated_emoji.dart';
+import 'sendsar_location_map.dart';
 import 'sendsar_message_text.dart';
+import 'sendsar_voice_message.dart';
 
-const _quickReactions = ['👍', '❤️', '😂', '🎉'];
+const _quickReactions = [
+  '👍',
+  '❤️',
+  '😂',
+  '🔥',
+  '🙏',
+  '👏',
+  '😭',
+  '😍',
+  '🎉',
+  '😊',
+  '😮',
+  '😢',
+  '💯',
+  '🤔',
+  '👎',
+  '🥰',
+];
 
 class SendsarMessageList extends StatefulWidget {
   const SendsarMessageList({
@@ -31,6 +53,7 @@ class SendsarMessageList extends StatefulWidget {
     this.style,
     this.bubbleBuilder,
     this.onCallRedial,
+    this.onEditMessage,
   });
 
   final String roomId;
@@ -44,6 +67,9 @@ class SendsarMessageList extends StatefulWidget {
   /// Called when a call-log bubble is tapped (redial with the same type).
   final void Function(CallType type)? onCallRedial;
 
+  /// When set, Edit fills the composer instead of an inline field.
+  final void Function(Message message)? onEditMessage;
+
   @override
   State<SendsarMessageList> createState() => _SendsarMessageListState();
 }
@@ -51,6 +77,9 @@ class SendsarMessageList extends StatefulWidget {
 class _SendsarMessageListState extends State<SendsarMessageList> {
   final _scrollController = ScrollController();
   List<Message> _messages = [];
+  List<Message> _pinned = [];
+  int _activePinnedIndex = 0;
+  final Map<String, GlobalKey> _messageKeys = {};
   bool _loading = false;
   bool _loadingOlder = false;
   String? _nextCursor;
@@ -134,6 +163,9 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
       _error = null;
       _editingId = null;
       _editController.clear();
+      _pinned = <Message>[];
+      _activePinnedIndex = 0;
+      _messageKeys.clear();
     });
 
     final session = context.read<SendsarSessionService>();
@@ -174,16 +206,34 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
         },
         onMessageUpdated: (msg) {
           if (!mounted || widget.roomId != roomId) return;
+          Message? previous;
+          for (final existing in _messages) {
+            if (existing.id == msg.id) {
+              previous = existing;
+              break;
+            }
+          }
+          final pinChanged =
+              (previous?.pinnedAt != null) != (msg.pinnedAt != null);
           setState(() {
             _messages = _messages
                 .map((m) => m.id == msg.id
                     ? preserveFileAccessUrls(msg, m)
                     : m)
                 .toList(growable: false);
+            if (!pinChanged) {
+              _pinned = _pinned
+                  .map((m) => m.id == msg.id
+                      ? preserveFileAccessUrls(msg, m)
+                      : m)
+                  .where((m) => m.pinnedAt != null && m.deletedAt == null)
+                  .toList(growable: false);
+            }
           });
           _persistThreadCache();
           widget.onActivity?.call();
           unawaited(_hydrateMissingFileUrls(msg.id));
+          if (pinChanged) unawaited(_refreshPinned());
         },
         onPeerLastReadAt: (lastReadAt) {
           if (!mounted || widget.roomId != roomId) return;
@@ -205,6 +255,7 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
     if (cached != null) {
       _scrollToBottom(animate: false);
     }
+    unawaited(_refreshPinned());
   }
 
   void _applyPeerRead({
@@ -414,6 +465,7 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
       } else {
         await chat.unpinMessage(widget.roomId, message.id);
       }
+      await _refreshPinned();
     } catch (err) {
       if (!mounted) return;
       setState(() {
@@ -424,62 +476,25 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
 
   Future<void> _forwardMessage(Message message) async {
     final chat = context.read<SendsarChatService>();
-    final List<RoomSummary> rooms;
-    try {
-      final result = await chat.listRooms();
-      rooms = result.rooms.where((r) => r.id != widget.roomId).toList();
-    } catch (err) {
-      if (!mounted) return;
-      setState(() {
-        _error = err is Exception ? err.toString() : 'Failed to load rooms';
-      });
-      return;
-    }
+    final selfUserId =
+        context.read<SendsarSessionService>().session?.chatUserId ?? '';
+    final roomsFuture = chat.listRooms(const ListRoomsParams(limit: 100));
     if (!mounted) return;
-    if (rooms.isEmpty) {
-      setState(() => _error = 'No other rooms to forward to');
-      return;
-    }
 
-    final targetRoomId = await showModalBottomSheet<String>(
+    final targetRoomIds = await showDialog<List<String>>(
       context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 8),
-                child: Text(
-                  'Forward to…',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-              ),
-              Flexible(
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: rooms.length,
-                  itemBuilder: (context, index) {
-                    final room = rooms[index];
-                    return ListTile(
-                      leading: const Icon(Icons.chat_bubble_outline),
-                      title: Text(room.name ?? room.externalId ?? room.id),
-                      onTap: () => Navigator.pop(sheetContext, room.id),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
+      builder: (dialogContext) => _ForwardTargetsDialog(
+        roomsFuture: roomsFuture,
+        excludeRoomId: widget.roomId,
+        users: widget.users,
+        selfUserId: selfUserId,
+        theme: context.sendsarTheme,
+      ),
     );
-    if (targetRoomId == null || !mounted) return;
+    if (targetRoomIds == null || targetRoomIds.isEmpty || !mounted) return;
 
     try {
-      await chat.forwardMessage(widget.roomId, message.id, [targetRoomId]);
+      await chat.forwardMessage(widget.roomId, message.id, targetRoomIds);
     } catch (err) {
       if (!mounted) return;
       setState(() {
@@ -525,6 +540,85 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
     return merged;
   }
 
+  GlobalKey _keyFor(String id) =>
+      _messageKeys.putIfAbsent(id, GlobalKey.new);
+
+  Future<void> _refreshPinned() async {
+    final roomId = widget.roomId;
+    if (!mounted || roomId.isEmpty) return;
+    try {
+      final pinned = await context
+          .read<SendsarChatService>()
+          .getPinnedMessages(roomId);
+      if (!mounted || widget.roomId != roomId) return;
+      final sorted = _sortedPins(pinned);
+      setState(() {
+        _pinned = sorted;
+        if (_activePinnedIndex >= sorted.length) _activePinnedIndex = 0;
+      });
+    } catch (_) {
+      if (!mounted || widget.roomId != roomId) return;
+      final local = _sortedPins(_messages);
+      setState(() {
+        _pinned = local;
+        if (_activePinnedIndex >= local.length) _activePinnedIndex = 0;
+      });
+    }
+  }
+
+  List<Message> _sortedPins(List<Message> messages) {
+    final pinned = messages
+        .where((message) =>
+            message.pinnedAt != null &&
+            message.deletedAt == null &&
+            message.deletedHidden != true)
+        .toList();
+    pinned.sort((a, b) {
+      final at =
+          DateTime.tryParse(a.pinnedAt ?? '')?.millisecondsSinceEpoch ?? 0;
+      final bt =
+          DateTime.tryParse(b.pinnedAt ?? '')?.millisecondsSinceEpoch ?? 0;
+      return bt.compareTo(at);
+    });
+    return pinned;
+  }
+
+  void _onPinnedBarTap() {
+    if (_pinned.isEmpty) return;
+    if (_pinned.length > 1) {
+      setState(() {
+        _activePinnedIndex = (_activePinnedIndex + 1) % _pinned.length;
+      });
+    }
+    final index = _activePinnedIndex.clamp(0, _pinned.length - 1);
+    _scrollToMessage(_pinned[index].id);
+  }
+
+  void _scrollToMessage(String id) {
+    final target = _messageKeys[id]?.currentContext;
+    if (target != null) {
+      Scrollable.ensureVisible(
+        target,
+        alignment: 0.15,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+      return;
+    }
+    final index = _messages.indexWhere((message) => message.id == id);
+    if (index < 0 || !_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final fraction =
+        _messages.length <= 1 ? 0.0 : index / (_messages.length - 1);
+    final offset = (position.maxScrollExtent * fraction)
+        .clamp(0.0, position.maxScrollExtent);
+    _scrollController.animateTo(
+      offset,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final userMap = userDirectoryMap(widget.users);
@@ -539,6 +633,20 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
             Padding(
               padding: const EdgeInsets.all(8),
               child: Text(_error!, style: TextStyle(color: theme.error)),
+            ),
+          if (_pinned.isNotEmpty)
+            _PinnedBar(
+              theme: theme,
+              message: _pinned[_activePinnedIndex.clamp(0, _pinned.length - 1)],
+              label: _pinned.length > 1
+                  ? 'Pinned message #${_activePinnedIndex + 1}'
+                  : 'Pinned message',
+              count: _pinned.length,
+              activeIndex: _activePinnedIndex,
+              onOpen: _onPinnedBarTap,
+              onUnpin: () => _togglePin(
+                _pinned[_activePinnedIndex.clamp(0, _pinned.length - 1)],
+              ),
             ),
           Expanded(
             child: _loading && _messages.isEmpty
@@ -569,6 +677,10 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
                       final msgIndex = _nextCursor != null ? index - 1 : index;
                       final message = _messages[msgIndex];
                       final isSelf = _isSelf(message);
+                      Widget keyed(Widget child) => KeyedSubtree(
+                            key: _keyFor(message.id),
+                            child: child,
+                          );
                       final callLog = message.deletedAt == null
                           ? parseCallLogPart(message.parts)
                           : null;
@@ -578,19 +690,19 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
                                 .session
                                 ?.chatUserId ??
                             '';
-                        return _CallLogRow(
+                        return keyed(_CallLogRow(
                           theme: theme,
                           data: callLog,
                           selfUserId: selfUserId,
                           createdAt: message.createdAt,
                           onRedial: widget.onCallRedial,
-                        );
+                        ));
                       }
                       final membership = message.deletedAt == null
                           ? parseMembershipPart(message.parts)
                           : null;
                       if (membership != null) {
-                        return _MembershipRow(
+                        return keyed(_MembershipRow(
                           theme: theme,
                           label: formatMembershipPreview(
                             membership,
@@ -604,7 +716,7 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
                             ),
                           ),
                           createdAt: message.createdAt,
-                        );
+                        ));
                       }
                       final editing = _editingId == message.id;
                       final caption = _captionText(message);
@@ -626,11 +738,18 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
                         editing: editing,
                         editController: _editController,
                         onStartEdit: isSelf && message.deletedAt == null
-                            ? () => setState(() {
+                            ? () {
+                                final onEdit = widget.onEditMessage;
+                                if (onEdit != null) {
+                                  onEdit(message);
+                                  return;
+                                }
+                                setState(() {
                                   _editingId = message.id;
                                   _editController.text =
                                       textFromMessageParts(message.parts);
-                                })
+                                });
+                              }
                             : null,
                         onCancelEdit: () => setState(() {
                           _editingId = null;
@@ -649,20 +768,162 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
                             : null,
                       );
                       if (widget.bubbleBuilder != null) {
-                        return widget.bubbleBuilder!(
+                        return keyed(widget.bubbleBuilder!(
                           context,
                           message,
                           isSelf,
                           defaultBubble,
-                        );
+                        ));
                       }
-                      return defaultBubble;
+                      return keyed(defaultBubble);
                     },
                   ),
           ),
         ],
       ),
     );
+  }
+}
+
+class _PinnedBar extends StatelessWidget {
+  const _PinnedBar({
+    required this.theme,
+    required this.message,
+    required this.label,
+    required this.count,
+    required this.activeIndex,
+    required this.onOpen,
+    required this.onUnpin,
+  });
+
+  final SendsarChatTheme theme;
+  final Message message;
+  final String label;
+  final int count;
+  final int activeIndex;
+  final VoidCallback onOpen;
+  final VoidCallback onUnpin;
+
+  @override
+  Widget build(BuildContext context) {
+    final preview = messagePreview(message);
+    final imageUrl = _pinnedImageUrl(message);
+    return Material(
+      color: theme.surface,
+      child: InkWell(
+        onTap: onOpen,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: theme.border)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(6, 1, 2, 1),
+            child: Row(
+              children: [
+                _pinMarks(),
+                const SizedBox(width: 10),
+                if (imageUrl != null) ...[
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: CachedNetworkImage(
+                      imageUrl: imageUrl,
+                      width: 28,
+                      height: 28,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: theme.accent,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          height: 1.15,
+                        ),
+                      ),
+                      Text(
+                        preview.isEmpty ? 'Pinned message' : preview,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: theme.textMuted,
+                          fontSize: 12,
+                          height: 1.2,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Unpin',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  onPressed: onUnpin,
+                  icon: Transform.rotate(
+                    angle: 0.8,
+                    child: Icon(Icons.push_pin, size: 16, color: theme.textMuted),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _pinMarks() {
+    if (count <= 1) {
+      return Container(
+        width: 4,
+        height: 22,
+        decoration: BoxDecoration(
+          color: theme.accent,
+          borderRadius: BorderRadius.circular(99),
+        ),
+      );
+    }
+
+    const visible = 4;
+    final shown = count < visible ? count : visible;
+    final start = count <= shown
+        ? 0
+        : (activeIndex - shown ~/ 2).clamp(0, count - shown);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var slot = 0; slot < shown; slot++)
+          Container(
+            width: 4,
+            height: start + slot == activeIndex ? 10 : 4,
+            margin: const EdgeInsets.symmetric(vertical: 1),
+            decoration: BoxDecoration(
+              color: start + slot == activeIndex
+                  ? theme.accent
+                  : theme.accent.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(99),
+            ),
+          ),
+      ],
+    );
+  }
+
+  String? _pinnedImageUrl(Message message) {
+    for (final part in fileParts(message.parts)) {
+      if (!isImagePart(part)) continue;
+      final url = filePartUrl(part);
+      if (url != null) return url;
+    }
+    return null;
   }
 }
 
@@ -799,20 +1060,21 @@ class _MessageBubble extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Wrap(
+                  alignment: WrapAlignment.center,
                   children: [
                     for (final emoji in _quickReactions)
                       IconButton(
                         tooltip: 'React with $emoji',
+                        visualDensity: VisualDensity.compact,
                         onPressed: () {
                           Navigator.pop(sheetContext);
                           onReact(emoji);
                         },
                         icon: SendsarAnimatedEmoji(
                           emoji: emoji,
-                          size: 28,
+                          size: 26,
                           enabled: false,
                         ),
                       ),
@@ -878,6 +1140,8 @@ class _MessageBubble extends StatelessWidget {
     final radius = listStyle?.bubbleRadius ?? 12.0;
     final timeLabel = formatMessageHeaderTime(createdAt);
     final displayName = isSelf ? '$senderName (Me)' : senderName;
+    final hasLocation = parseLocationPart(message.parts) != null;
+    final hasVoice = fileParts(message.parts).any(isAudioPart);
 
     final reactions = <String, int>{};
     for (final r in message.reactions ?? const []) {
@@ -953,9 +1217,12 @@ class _MessageBubble extends StatelessWidget {
                       isSelf ? Alignment.centerRight : Alignment.centerLeft,
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
-                      maxWidth: MediaQuery.sizeOf(context).width * 0.5,
+                      maxWidth: hasLocation || hasVoice
+                          ? 280
+                          : MediaQuery.sizeOf(context).width * 0.5,
                     ),
-                    child: IntrinsicWidth(
+                    child: _FitBubble(
+                      expand: hasLocation || hasVoice,
                       child: GestureDetector(
                         onLongPress: editing
                             ? null
@@ -1032,8 +1299,9 @@ class _MessageBubble extends StatelessWidget {
                                           ],
                                         ),
                                       ),
-                                    // Attachments first, then caption — matches Angular.
-                                    ..._attachmentWidgets(message, fg),
+                                    // Map iframe, then attachments, then caption.
+                                    ..._locationWidgets(message),
+                                    ..._attachmentWidgets(context, message, fg),
                                     if (preview.isNotEmpty)
                                       Padding(
                                         padding: EdgeInsets.only(
@@ -1136,38 +1404,75 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
-  List<Widget> _attachmentWidgets(Message message, Color fg) {
+  List<Widget> _locationWidgets(Message message) {
+    final location = parseLocationPart(message.parts);
+    if (location == null) return const [];
+    return [
+      ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          height: 160,
+          width: double.infinity,
+          child: SendsarLocationMap(
+            latitude: location.latitude,
+            longitude: location.longitude,
+          ),
+        ),
+      ),
+    ];
+  }
+
+  List<Widget> _attachmentWidgets(
+    BuildContext context,
+    Message message,
+    Color fg,
+  ) {
     final imageHeight = listStyle?.imageHeight ?? 160.0;
     final widgets = <Widget>[];
     final inverted = isSelf;
 
     for (final part in fileParts(message.parts)) {
       final url = filePartUrl(part);
-      if (isImagePart(part) && url != null) {
+      if (isAudioPart(part)) {
+        widgets.add(
+          Padding(
+            padding: EdgeInsets.only(top: widgets.isEmpty ? 0 : 6),
+            child: SendsarVoiceMessage(
+              url: url,
+              recordedAt: message.createdAt,
+              theme: theme,
+              outgoing: inverted,
+            ),
+          ),
+        );
+      } else if (isImagePart(part) && url != null) {
         widgets.add(
           Padding(
             padding: const EdgeInsets.only(top: 6),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: imageHeight,
-                  maxWidth: 280,
-                ),
-                child: CachedNetworkImage(
-                  imageUrl: url,
-                  fit: BoxFit.cover,
-                  placeholder: (_, __) => SizedBox(
-                    height: imageHeight,
-                    width: 180,
-                    child: ColoredBox(color: theme.skeletonMuted),
+            child: GestureDetector(
+              onTap: () => _showImageDialog(context, url),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: imageHeight,
+                    maxWidth: 280,
                   ),
-                  errorWidget: (_, __, ___) => _FilePreviewChip(
-                    name: part.filename ?? 'Image',
-                    mediaType: part.mediaType ?? '',
-                    theme: theme,
-                    inverted: inverted,
-                    fg: fg,
+                  child: CachedNetworkImage(
+                    imageUrl: url,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => SizedBox(
+                      height: imageHeight,
+                      width: 180,
+                      child: ColoredBox(color: theme.skeletonMuted),
+                    ),
+                    errorWidget: (_, __, ___) => _FilePreviewChip(
+                      name: part.filename ?? 'Image',
+                      mediaType: part.mediaType ?? '',
+                      theme: theme,
+                      inverted: inverted,
+                      fg: fg,
+                    ),
                   ),
                 ),
               ),
@@ -1191,6 +1496,146 @@ class _MessageBubble extends StatelessWidget {
       }
     }
     return widgets;
+  }
+}
+
+void _showImageDialog(BuildContext context, String url) {
+  showDialog<void>(
+    context: context,
+    builder: (_) => _ImagePreviewDialog(url: url),
+  );
+}
+
+class _ImagePreviewDialog extends StatefulWidget {
+  const _ImagePreviewDialog({required this.url});
+
+  final String url;
+
+  @override
+  State<_ImagePreviewDialog> createState() => _ImagePreviewDialogState();
+}
+
+class _ImagePreviewDialogState extends State<_ImagePreviewDialog> {
+  bool _saving = false;
+  String? _notice;
+
+  Future<void> _download() async {
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+      _notice = null;
+    });
+    try {
+      final access = await Gal.hasAccess();
+      if (!access) {
+        final granted = await Gal.requestAccess();
+        if (!granted) {
+          throw StateError('Photo access was denied');
+        }
+      }
+      final response = await http.get(Uri.parse(widget.url));
+      if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
+        throw StateError('Could not download the image');
+      }
+      await Gal.putImageBytes(
+        response.bodyBytes,
+        name: 'chat-${DateTime.now().millisecondsSinceEpoch}',
+      );
+      if (!mounted) return;
+      setState(() => _notice = 'Saved to gallery');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _notice = 'Could not save image');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    return Dialog(
+      backgroundColor: Colors.black,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
+      child: SizedBox(
+        width: size.width,
+        height: size.height * 0.7,
+        child: Stack(
+          children: [
+            InteractiveViewer(
+              minScale: 1,
+              maxScale: 4,
+              child: CachedNetworkImage(
+                imageUrl: widget.url,
+                width: size.width,
+                height: size.height * 0.7,
+                fit: BoxFit.contain,
+                placeholder: (_, __) => const Center(
+                  child: CircularProgressIndicator(),
+                ),
+                errorWidget: (_, __, ___) => const Icon(
+                  Icons.broken_image_outlined,
+                  color: Colors.white,
+                  size: 48,
+                ),
+              ),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    tooltip: 'Download',
+                    onPressed: _saving ? null : _download,
+                    icon: _saving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.download, color: Colors.white),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+            if (_notice != null)
+              Positioned(
+                left: 12,
+                right: 12,
+                bottom: 12,
+                child: Text(
+                  _notice!,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FitBubble extends StatelessWidget {
+  const _FitBubble({required this.expand, required this.child});
+
+  final bool expand;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (expand) return SizedBox(width: double.infinity, child: child);
+    return IntrinsicWidth(child: child);
   }
 }
 
@@ -1333,4 +1778,241 @@ DateTime? _parseApiTime(String value) {
     return DateTime.tryParse('${trimmed}Z') ?? DateTime.tryParse(trimmed);
   }
   return DateTime.tryParse(trimmed);
+}
+
+class _ForwardTargetsDialog extends StatefulWidget {
+  const _ForwardTargetsDialog({
+    required this.roomsFuture,
+    required this.excludeRoomId,
+    required this.users,
+    required this.selfUserId,
+    required this.theme,
+  });
+
+  final Future<RoomsResponse> roomsFuture;
+  final String excludeRoomId;
+  final List<UserDirectoryEntry> users;
+  final String selfUserId;
+  final SendsarChatTheme theme;
+
+  @override
+  State<_ForwardTargetsDialog> createState() => _ForwardTargetsDialogState();
+}
+
+class _ForwardTargetsDialogState extends State<_ForwardTargetsDialog> {
+  final _selected = <String>{};
+  final _search = TextEditingController();
+  List<RoomSummary> _rooms = const [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _search.addListener(() => setState(() {}));
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    try {
+      final result = await widget.roomsFuture;
+      if (!mounted) return;
+      setState(() {
+        _rooms = result.rooms
+            .where((room) => room.id != widget.excludeRoomId)
+            .toList();
+        _loading = false;
+      });
+    } catch (err) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = err is Exception ? err.toString() : 'Failed to load members';
+      });
+    }
+  }
+
+  List<RoomSummary> get _visible {
+    final query = _search.text.trim().toLowerCase();
+    if (query.isEmpty) return _rooms;
+    return _rooms.where((room) {
+      return _label(room).toLowerCase().contains(query);
+    }).toList();
+  }
+
+  String _label(RoomSummary room) {
+    return resolveRoomLabel(room, widget.selfUserId, widget.users);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = widget.theme;
+    final visible = _visible;
+    final canForward = !_loading && _selected.isNotEmpty;
+
+    return Dialog(
+      backgroundColor: theme.surface,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420, maxHeight: 520),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Forward to',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: theme.textPrimary,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.pop(context),
+                    icon: Icon(Icons.close, color: theme.textMuted),
+                  ),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: TextField(
+                  controller: _search,
+                  enabled: !_loading,
+                  decoration: InputDecoration(
+                    isDense: true,
+                    hintText: 'Search members',
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (_error != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 8, 12, 8),
+                  child: Text(_error!, style: TextStyle(color: theme.error)),
+                )
+              else if (_loading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (visible.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 24, 12, 24),
+                  child: Text(
+                    _rooms.isEmpty
+                        ? 'No other members to forward to'
+                        : 'No members match that search',
+                    style: TextStyle(color: theme.textMuted),
+                  ),
+                )
+              else
+                Flexible(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: visible.length,
+                    itemBuilder: (context, index) {
+                      final room = visible[index];
+                      final label = _label(room);
+                      final selected = _selected.contains(room.id);
+                      return InkWell(
+                        onTap: () {
+                          setState(() {
+                            if (selected) {
+                              _selected.remove(room.id);
+                            } else {
+                              _selected.add(room.id);
+                            }
+                          });
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: Row(
+                            children: [
+                              Checkbox(
+                                value: selected,
+                                onChanged: (checked) {
+                                  setState(() {
+                                    if (checked ?? false) {
+                                      _selected.add(room.id);
+                                    } else {
+                                      _selected.remove(room.id);
+                                    }
+                                  });
+                                },
+                              ),
+                              CircleAvatar(
+                                radius: 16,
+                                backgroundColor: theme.accentSoft,
+                                child: Text(
+                                  initialsFor(label),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: theme.accent,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(color: theme.textPrimary),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Cancel'),
+                    ),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: canForward
+                          ? () => Navigator.pop(context, _selected.toList())
+                          : null,
+                      child: Text(
+                        _selected.length > 1
+                            ? 'Forward to ${_selected.length}'
+                            : 'Forward',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

@@ -3,8 +3,6 @@
  * Keep in sync with sendsar-uikit-angular/sample-bff/server.mjs (CORS added for Flutter web).
  *
  *   POST /api/chat/session
- *   POST /api/chat/demo/ensure-dm
- *   POST /api/chat/demo/ensure-group
  *   GET  /api/chat/health
  */
 import { dirname, join } from "node:path";
@@ -122,108 +120,6 @@ app.post("/api/chat/session", async (req, res) => {
   } catch (err) {
     res.status(500).json({
       error: err instanceof Error ? err.message : "Session failed",
-    });
-  }
-});
-
-app.post("/api/chat/demo/ensure-dm", async (req, res) => {
-  const { selfId, peerId, peerName } = req.body ?? {};
-  if (!selfId || !peerId) {
-    res.status(400).json({ error: "selfId and peerId are required" });
-    return;
-  }
-
-  try {
-    const externalId = `dm:${[selfId, peerId].sort().join(":")}`;
-    const listRes = await gatewayJson(
-      `/chat/rooms?externalId=${encodeURIComponent(externalId)}`,
-    );
-    if (!listRes.ok) {
-      res.status(502).json({ error: `List rooms failed: ${listRes.status}` });
-      return;
-    }
-
-    const listed = await listRes.json();
-    if (listed.rooms?.[0]?.id) {
-      res.json({ roomId: listed.rooms[0].id });
-      return;
-    }
-
-    const displayName = peerName?.trim() || peerId;
-    const createRes = await gatewayJson("/chat/rooms", {
-      method: "POST",
-      body: JSON.stringify({
-        name: displayName,
-        externalId,
-        customType: "demo_dm",
-        participants: [selfId, peerId].map((id) =>
-          participantDto(id, id === peerId ? displayName : id),
-        ),
-      }),
-    });
-    if (!createRes.ok) {
-      const detail = await createRes.text();
-      res
-        .status(502)
-        .json({ error: `Create room failed: ${createRes.status} ${detail}` });
-      return;
-    }
-
-    const created = await createRes.json();
-    res.json({ roomId: created.id });
-  } catch (err) {
-    res.status(500).json({
-      error: err instanceof Error ? err.message : "Ensure DM failed",
-    });
-  }
-});
-
-app.post("/api/chat/demo/ensure-group", async (req, res) => {
-  const { selfId, name, memberIds, members } = req.body ?? {};
-  if (!selfId || !name?.trim()) {
-    res.status(400).json({ error: "selfId and name are required" });
-    return;
-  }
-
-  const ids = Array.isArray(memberIds) ? [...new Set(memberIds)] : [];
-  if (!ids.includes(selfId)) {
-    ids.unshift(selfId);
-  }
-  if (ids.length < 2) {
-    res.status(400).json({ error: "Select at least one other member" });
-    return;
-  }
-
-  const nameMap = new Map(
-    Array.isArray(members)
-      ? members.map((m) => [m.chatUserId ?? m.id, m.displayName ?? m.username])
-      : [],
-  );
-
-  try {
-    const createRes = await gatewayJson("/chat/rooms", {
-      method: "POST",
-      body: JSON.stringify({
-        name: name.trim(),
-        customType: "demo_group",
-        participants: ids.map((id) =>
-          participantDto(id, nameMap.get(id) ?? id),
-        ),
-      }),
-    });
-    if (!createRes.ok) {
-      const detail = await createRes.text();
-      res
-        .status(502)
-        .json({ error: `Create group failed: ${createRes.status} ${detail}` });
-      return;
-    }
-
-    const created = await createRes.json();
-    res.json({ roomId: created.id });
-  } catch (err) {
-    res.status(500).json({
-      error: err instanceof Error ? err.message : "Ensure group failed",
     });
   }
 });

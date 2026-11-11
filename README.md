@@ -56,8 +56,8 @@ Revert with `npm run use:pub-sdk`. See [PUBLISHING.md](PUBLISHING.md) for pub.de
 
 | Feature | How it works |
 |---------|----------------|
-| **Direct messages** | BFF `POST /api/chat/demo/ensure-dm` — deduped by `externalId`, friendly labels via user directory |
-| **Groups** | BFF `POST /api/chat/demo/ensure-group` — named room + participants |
+| **Direct messages** | `SendsarClient.ensureDirectMessage` — lists by `externalId`, then creates the room with the session token |
+| **Groups** | `SendsarClient.ensureGroup` — creates a named room with the session token |
 | **Text + attachments** | Composer toolbar: text, emoji picker, file upload |
 | **Reactions** | Long-press a message → emoji row in action sheet |
 | **Typing** | `ComposerTypingController` + thread header indicator |
@@ -146,7 +146,7 @@ SendsarChatShell(
 |------|---------|
 | `sendsar_chat_uikit/` | Publishable package `sendsar_chat_uikit` |
 | `example/` | Demo Flutter app |
-| `sample-bff/` | Demo backend (session JWT + room helpers; CORS for Flutter web) |
+| `sample-bff/` | Demo backend (session JWT; CORS for Flutter web) |
 | `scripts/setup.mjs` | Copies `sample-bff/.env.example` → `.env` |
 | `scripts/use-local-sdk.mjs` | Local `sendsar_chat` path override for monorepo dev |
 
@@ -156,8 +156,6 @@ SendsarChatShell(
 |--------|------|-------------|
 | `GET` | `/api/chat/health` | Health check |
 | `POST` | `/api/chat/session` | Mint session JWT |
-| `POST` | `/api/chat/demo/ensure-dm` | Create or find a DM room |
-| `POST` | `/api/chat/demo/ensure-group` | Create a group room |
 
 Default port: **4400** (`sample-bff/.env`).
 

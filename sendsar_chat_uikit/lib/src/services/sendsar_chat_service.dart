@@ -1,13 +1,19 @@
 import 'dart:typed_data';
 
+import 'package:flutter/widgets.dart';
 import 'package:sendsar_chat/sendsar_chat.dart';
 
+import '../widgets/sendsar_chat_shell.dart';
 import 'sendsar_session_service.dart';
 
 class SendsarChatService {
   SendsarChatService(this._session);
 
   final SendsarSessionService _session;
+
+  /// Key for the shell that [openDirectChat] opens on the next frame.
+  final GlobalKey<SendsarChatShellState> directChatShellKey =
+      GlobalKey<SendsarChatShellState>();
 
   SendsarClient requireClient() {
     final client = _session.client;
@@ -150,4 +156,68 @@ class SendsarChatService {
       ),
     );
   }
+
+  /// Find or create a direct room between the signed-in user and [peerId].
+  ///
+  /// [selfId] defaults to the connected session user. Throws when that user
+  /// is [peerId]. Opens the room in [directChatShellKey] on the next frame.
+  Future<RoomDetail> openDirectChat({
+    required String peerId,
+    String? peerName,
+    String? selfId,
+  }) async {
+    final id = (selfId ?? _session.session?.chatUserId)?.trim() ?? '';
+    if (id.isEmpty) {
+      throw StateError('Sendsar client is not connected');
+    }
+    if (id == peerId) {
+      throw StateError('Cannot open a direct chat with yourself');
+    }
+    final room = await ensureDirectMessage(
+      selfId: id,
+      peerId: peerId,
+      peerName: peerName,
+    );
+    final title = peerName;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      directChatShellKey.currentState?.openRoom(room.id, title: title);
+    });
+    return room;
+  }
+
+  /// Find the direct room for [selfId] and [peerId], or create it.
+  /// Uses the session token. Peers must already exist.
+  Future<RoomDetail> ensureDirectMessage({
+    required String selfId,
+    required String peerId,
+    String? peerName,
+    String customType = 'demo_dm',
+    String appCode = 'demo',
+  }) =>
+      requireClient().ensureDirectMessage(
+        selfId: selfId,
+        peerId: peerId,
+        peerName: peerName,
+        customType: customType,
+        appCode: appCode,
+      );
+
+  /// Create a named group that includes [selfId] and [memberIds].
+  /// Uses the session token. Every participant must already exist.
+  Future<RoomDetail> ensureGroup({
+    required String selfId,
+    required String name,
+    required List<String> memberIds,
+    Map<String, String> displayNames = const {},
+    String customType = 'demo_group',
+    String appCode = 'demo',
+  }) =>
+      requireClient().ensureGroup(
+        selfId: selfId,
+        name: name,
+        memberIds: memberIds,
+        displayNames: displayNames,
+        customType: customType,
+        appCode: appCode,
+      );
 }

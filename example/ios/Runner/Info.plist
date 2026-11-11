@@ -70,6 +70,10 @@
 	<string>Sendsar needs camera access for video calls.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Sendsar needs microphone access for voice and video calls.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Sendsar uses your location when you share it in a chat.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Sendsar saves photos you download from a chat.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

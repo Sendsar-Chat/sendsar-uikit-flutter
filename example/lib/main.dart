@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:sendsar_chat_uikit/sendsar_chat_uikit.dart';
 
 import 'demo_environment.dart';
@@ -54,11 +55,15 @@ class _SendsarUIKitExampleAppState extends State<SendsarUIKitExampleApp> {
               theme: SendsarChatTheme.light,
               child: Scaffold(
                 appBar: AppBar(
-                  title: Text('Chat as ${_identity!.displayName}'),
+                  title: Text(
+                    'Chat as ${_identity!.displayName}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
                   actions: [
-                    TextButton(
+                    IconButton(
+                      tooltip: 'Switch user',
                       onPressed: () => setState(() => _identity = null),
-                      child: const Text('Switch user'),
+                      icon: const Icon(Icons.switch_account_outlined),
                     ),
                   ],
                 ),
@@ -68,7 +73,6 @@ class _SendsarUIKitExampleAppState extends State<SendsarUIKitExampleApp> {
                     children: [
                       // _DemoActions(
                       //   selfId: _identity!.chatUserId,
-                      //   demo: _demo,
                       //   onOpenRoom: (roomId, title) async {
                       //     await _shellKey.currentState?.openRoom(roomId, title: title);
                       //   },
@@ -144,12 +148,10 @@ class _IdentityPicker extends StatelessWidget {
 class _DemoActions extends StatefulWidget {
   const _DemoActions({
     required this.selfId,
-    required this.demo,
     required this.onOpenRoom,
   });
 
   final String selfId;
-  final DemoSessionService demo;
   final Future<void> Function(String roomId, String? title) onOpenRoom;
 
   @override
@@ -189,12 +191,14 @@ class _DemoActionsState extends State<_DemoActions> {
                 onPressed: _busy
                     ? null
                     : () => _run(() async {
-                          final roomId = await widget.demo.ensureDirectMessage(
-                            selfId: widget.selfId,
-                            peerId: peer.chatUserId,
-                            peerName: peer.displayName,
-                          );
-                          await widget.onOpenRoom(roomId, peer.displayName);
+                          final room = await context
+                              .read<SendsarChatService>()
+                              .ensureDirectMessage(
+                                selfId: widget.selfId,
+                                peerId: peer.chatUserId,
+                                peerName: peer.displayName,
+                              );
+                          await widget.onOpenRoom(room.id, peer.displayName);
                         }),
                 child: Text('DM ${peer.displayName}'),
               ),
@@ -202,12 +206,19 @@ class _DemoActionsState extends State<_DemoActions> {
               onPressed: _busy
                   ? null
                   : () => _run(() async {
-                        final roomId = await widget.demo.ensureGroup(
-                          selfId: widget.selfId,
-                          name: 'Demo group',
-                          memberIds: demoUsers.map((u) => u.chatUserId).toList(),
-                        );
-                        await widget.onOpenRoom(roomId, 'Demo group');
+                        final room = await context
+                            .read<SendsarChatService>()
+                            .ensureGroup(
+                              selfId: widget.selfId,
+                              name: 'Demo group',
+                              memberIds:
+                                  demoUsers.map((u) => u.chatUserId).toList(),
+                              displayNames: {
+                                for (final user in demoUsers)
+                                  user.chatUserId: user.displayName,
+                              },
+                            );
+                        await widget.onOpenRoom(room.id, 'Demo group');
                       }),
               child: const Text('Create group'),
             ),

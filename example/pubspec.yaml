@@ -11,6 +11,7 @@ dependencies:
   flutter:
     sdk: flutter
   http: ^1.2.2
+  provider: ^6.1.2
   sendsar_chat: ^0.6.0
   sendsar_chat_uikit:
     path: ../sendsar_chat_uikit
