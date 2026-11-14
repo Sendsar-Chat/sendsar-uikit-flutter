@@ -56,8 +56,8 @@ Revert with `npm run use:pub-sdk`. See [PUBLISHING.md](PUBLISHING.md) for pub.de
 
 | Feature | How it works |
 |---------|----------------|
-| **Direct messages** | `SendsarClient.ensureDirectMessage` — lists by `externalId`, then creates the room with the session token |
-| **Groups** | `SendsarClient.ensureGroup` — creates a named room with the session token |
+| **Direct messages** | `SendsarChatService.ensureDirectMessage` — `createRoom` with stable `dm:<a>:<b>` `externalId` |
+| **Groups** | `SendsarChatService.ensureGroup` — `createRoom` with name + participants |
 | **Text + attachments** | Composer toolbar: text, emoji picker, file upload |
 | **Reactions** | Long-press a message → emoji row in action sheet |
 | **Typing** | `ComposerTypingController` + thread header indicator |

@@ -6,8 +6,8 @@ Ready-to-use chat UI for Flutter — built on [`sendsar_chat`](https://pub.dev/p
 
 ```yaml
 dependencies:
-  sendsar_chat_uikit: ^0.6.0
-  sendsar_chat: ^0.6.0
+  sendsar_chat_uikit: ^0.6.1
+  sendsar_chat: ^0.6.3
 ```
 
 ## Quick start

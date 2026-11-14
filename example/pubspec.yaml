@@ -12,7 +12,7 @@ dependencies:
     sdk: flutter
   http: ^1.2.2
   provider: ^6.1.2
-  sendsar_chat: ^0.6.0
+  sendsar_chat: ^0.6.3
   sendsar_chat_uikit:
     path: ../sendsar_chat_uikit
 
@@ -21,9 +21,9 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
 
-# sendsar_call 0.2.0 still declares sendsar_chat ^0.2.0; force the published 0.6.0 SDK.
+# sendsar_call still declares an older sendsar_chat; force the hosted SDK that has createRoom.
 dependency_overrides:
-  sendsar_chat: 0.6.0
+  sendsar_chat: 0.6.3
 
 flutter:
   uses-material-design: true

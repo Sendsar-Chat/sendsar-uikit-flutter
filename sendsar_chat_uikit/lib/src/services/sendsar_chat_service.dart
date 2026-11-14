@@ -186,24 +186,37 @@ class SendsarChatService {
   }
 
   /// Find the direct room for [selfId] and [peerId], or create it.
-  /// Uses the session token. Peers must already exist.
+  ///
+  /// Uses [SendsarClient.createRoom] with a stable sorted `externalId`
+  /// (`dm:<a>:<b>`). Peers must already exist (minted or upserted).
   Future<RoomDetail> ensureDirectMessage({
     required String selfId,
     required String peerId,
     String? peerName,
     String customType = 'demo_dm',
     String appCode = 'demo',
-  }) =>
-      requireClient().ensureDirectMessage(
-        selfId: selfId,
-        peerId: peerId,
-        peerName: peerName,
+  }) {
+    final ids = [selfId, peerId]..sort();
+    return requireClient().createRoom(
+      CreateRoomParams(
+        externalId: 'dm:${ids[0]}:${ids[1]}',
         customType: customType,
-        appCode: appCode,
-      );
+        name: peerName,
+        participants: [
+          CreateRoomParticipant(id: selfId, appCode: appCode),
+          CreateRoomParticipant(
+            id: peerId,
+            appCode: appCode,
+            username: peerName,
+          ),
+        ],
+      ),
+    );
+  }
 
   /// Create a named group that includes [selfId] and [memberIds].
-  /// Uses the session token. Every participant must already exist.
+  ///
+  /// Uses [SendsarClient.createRoom]. Every participant must already exist.
   Future<RoomDetail> ensureGroup({
     required String selfId,
     required String name,
@@ -211,13 +224,21 @@ class SendsarChatService {
     Map<String, String> displayNames = const {},
     String customType = 'demo_group',
     String appCode = 'demo',
-  }) =>
-      requireClient().ensureGroup(
-        selfId: selfId,
+  }) {
+    final ids = <String>{selfId, ...memberIds}.toList();
+    return requireClient().createRoom(
+      CreateRoomParams(
         name: name,
-        memberIds: memberIds,
-        displayNames: displayNames,
         customType: customType,
-        appCode: appCode,
-      );
+        participants: [
+          for (final id in ids)
+            CreateRoomParticipant(
+              id: id,
+              appCode: appCode,
+              username: displayNames[id],
+            ),
+        ],
+      ),
+    );
+  }
 }

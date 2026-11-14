@@ -1,3 +1,17 @@
+## 0.6.1
+
+### Features
+- Voice messages, location share, direct open-chat helpers, expanded reactions, forward improvements.
+- Safe-area handling in the chat shell; voice/video call header actions temporarily disabled.
+
+### Dependencies
+- `sendsar_chat_uikit` requires `sendsar_chat` `^0.6.3`.
+
+## 0.6.0
+
+### Breaking
+- Aligns UI kit version with `sendsar_chat` `^0.6.0`.
+
 ## 0.2.1
 
 ### UX

@@ -1,6 +1,6 @@
 name: sendsar_chat_uikit
 description: Ready-to-use chat UI for Flutter — built on sendsar_chat.
-version: 0.6.0
+version: 0.6.1
 homepage: https://github.com/Sendsar-Chat/sendsar-uikit-flutter
 repository: https://github.com/Sendsar-Chat/sendsar-uikit-flutter
 issue_tracker: https://github.com/Sendsar-Chat/sendsar-uikit-flutter/issues
@@ -28,7 +28,7 @@ dependencies:
   url_launcher: ^6.3.1
   webview_flutter: ^4.13.0
   livekit_client: ^2.8.1
-  sendsar_chat: ^0.6.0
+  sendsar_chat: ^0.6.3
   sendsar_call: ^0.2.0
 
 dev_dependencies:
@@ -36,8 +36,8 @@ dev_dependencies:
     sdk: flutter
   flutter_lints: ^6.0.0
 
-# sendsar_call 0.2.0 still declares sendsar_chat ^0.2.0; force the published 0.6.0 SDK.
+# sendsar_call still declares an older sendsar_chat; force the hosted SDK that has createRoom.
 dependency_overrides:
-  sendsar_chat: 0.6.0
+  sendsar_chat: 0.6.3
 
 flutter:

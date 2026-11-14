@@ -1,3 +1,24 @@
+## 0.6.1
+
+### Features
+- Voice messages in the composer and thread (`SendsarVoiceMessage`).
+- Location share UI (`SendsarLocationMap`) and location message parts.
+- Direct open-chat helpers on `SendsarChatService`.
+- Expanded reaction set on long-press.
+- Forward flow improvements in the shell / message list.
+
+### UX
+- Safe-area handling in `SendsarChatShell`.
+- Voice/video call header actions temporarily disabled (commented out) pending call UX polish.
+
+### Dependencies
+- Requires `sendsar_chat` `^0.6.3` (`createRoom`; override for `sendsar_call` compatibility).
+
+## 0.6.0
+
+### Breaking
+- Aligns package version with `sendsar_chat` `^0.6.0`.
+
 ## 0.4.0
 
 ### Features
