@@ -35,6 +35,16 @@ void main() {
     expect(label, 'Bob');
   });
 
+  test('DM title is the other user for both sides, ignoring room.name', () {
+    final room = _room(
+      name: 'Bob', // stored by the creator (Alice) as the receiver's name
+      externalId: 'dm:usr_a:usr_b',
+      customType: 'demo_dm',
+    );
+    expect(resolveRoomLabel(room, 'usr_a', users), 'Bob');
+    expect(resolveRoomLabel(room, 'usr_b', users), 'Alice');
+  });
+
   test('parseDmPeerId returns other participant', () {
     expect(parseDmPeerId('dm:usr_a:usr_b', 'usr_a'), 'usr_b');
   });

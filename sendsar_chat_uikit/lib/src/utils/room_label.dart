@@ -28,11 +28,9 @@ String resolveRoomLabel(
 ) {
   final map = userDirectoryMap(users);
 
-  final name = room.name?.trim();
-  if (name != null && name.isNotEmpty) {
-    return name;
-  }
-
+  // Direct messages: always show the *other* participant. The stored
+  // `room.name` is whatever the creator typed (the receiver's name), so using
+  // it would show the same title to both sides.
   if (isDirectMessage(room)) {
     final peerId = parseDmPeerId(room.externalId, selfUserId);
     if (peerId != null && peerId.isNotEmpty) {
@@ -40,15 +38,13 @@ String resolveRoomLabel(
     }
   }
 
-  if (room.customType == 'demo_group') {
-    return 'Group chat';
+  final name = room.name?.trim();
+  if (name != null && name.isNotEmpty) {
+    return name;
   }
 
-  if (room.externalId?.startsWith('dm:') ?? false) {
-    final peerId = parseDmPeerId(room.externalId, selfUserId);
-    if (peerId != null && peerId.isNotEmpty) {
-      return displayNameFor(peerId, map);
-    }
+  if (room.customType == 'demo_group') {
+    return 'Group chat';
   }
 
   return 'Conversation';
