@@ -350,6 +350,11 @@ class SendsarChatShellState extends State<SendsarChatShell> {
     unawaited(conversationListController.reload());
   }
 
+  /// Closes [roomId] if it is open and refreshes the conversation list.
+  /// Call after the room was removed outside the built-in buttons
+  /// (e.g. [SendsarChatService.endTripCleanup]).
+  void handleRoomRemoved(String roomId) => _onRoomDeleted(roomId);
+
   Future<void> _loadGroupParticipants(RoomSummary? room) async {
     final token = ++_participantsLoadToken;
     if (room == null || !isGroupRoom(room)) {

@@ -44,6 +44,17 @@ Conversation list and room info expose **Leave group** / **Delete chat** and **C
 history** (SDK `deleteConversation` / `clearHistory`). Group membership changes
 appear as centered system lines; the member list refreshes live.
 
+### Trip end / cancel cleanup
+
+```dart
+// When a trip finishes or is cancelled (run on each participant's device):
+await context.read<SendsarChatService>().endTripCleanup(roomId);
+```
+
+Clears the user's history, then leaves (group) or hides (DM) the room, and closes
+it in an open `SendsarChatShell`. The Sendsar API only supports per-user cleanup,
+so every participant must run it; the data is not destroyed server-side.
+
 ## Calls
 
 `SendsarChatShell` ships with voice/video calling out of the box: header call

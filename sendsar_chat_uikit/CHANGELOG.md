@@ -1,3 +1,9 @@
+## Unreleased
+
+### Features
+- `SendsarChatService.endTripCleanup(roomId)`: clear history and leave/hide a room in one call (trip finished/cancelled).
+- `SendsarChatShellState.handleRoomRemoved(roomId)` to close a room removed programmatically.
+
 ## 0.6.1
 
 ### Features

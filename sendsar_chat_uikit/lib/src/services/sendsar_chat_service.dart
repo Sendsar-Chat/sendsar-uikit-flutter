@@ -46,6 +46,35 @@ class SendsarChatService {
   Future<ClearHistoryResult> clearHistory(String roomId) =>
       requireClient().clearHistory(roomId);
 
+  /// Removes a finished or cancelled trip's chat from the signed-in user's
+  /// side: clears their history, then leaves (group) or hides (DM) the room.
+  ///
+  /// The server only offers per-user cleanup, so each participant's app (or
+  /// your backend, using the API key and `userId`) must call this. Shared
+  /// message rows are not destroyed server-side.
+  ///
+  /// History is cleared first because a user who has already left a group can
+  /// no longer clear it. Both steps are always attempted; if one fails the
+  /// first error is rethrown after the other has run. The open shell is reset
+  /// and its conversation list reloaded on success.
+  Future<DeleteConversationResult> endTripCleanup(String roomId) async {
+    final client = requireClient();
+    Object? clearError;
+    StackTrace? clearStack;
+    try {
+      await client.clearHistory(roomId);
+    } catch (err, stack) {
+      clearError = err;
+      clearStack = stack;
+    }
+    final result = await client.deleteConversation(roomId);
+    directChatShellKey.currentState?.handleRoomRemoved(roomId);
+    if (clearError != null) {
+      Error.throwWithStackTrace(clearError, clearStack!);
+    }
+    return result;
+  }
+
   Future<MessagesResponse> getMessages(
     String roomId, [
     ListMessagesParams params = const ListMessagesParams(),
