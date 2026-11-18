@@ -2,8 +2,6 @@ import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'package:gal/gal.dart';
-import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:sendsar_chat/sendsar_chat.dart';
 
@@ -19,6 +17,7 @@ import '../utils/room_thread_cache.dart';
 import '../utils/user_directory.dart';
 import 'sendsar_call_log_bubble.dart';
 import 'sendsar_animated_emoji.dart';
+import 'sendsar_image_viewer.dart';
 import 'sendsar_location_map.dart';
 import 'sendsar_message_text.dart';
 import 'sendsar_voice_message.dart';
@@ -217,15 +216,12 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
               (previous?.pinnedAt != null) != (msg.pinnedAt != null);
           setState(() {
             _messages = _messages
-                .map((m) => m.id == msg.id
-                    ? preserveFileAccessUrls(msg, m)
-                    : m)
+                .map((m) => m.id == msg.id ? preserveFileAccessUrls(msg, m) : m)
                 .toList(growable: false);
             if (!pinChanged) {
               _pinned = _pinned
-                  .map((m) => m.id == msg.id
-                      ? preserveFileAccessUrls(msg, m)
-                      : m)
+                  .map((m) =>
+                      m.id == msg.id ? preserveFileAccessUrls(msg, m) : m)
                   .where((m) => m.pinnedAt != null && m.deletedAt == null)
                   .toList(growable: false);
             }
@@ -319,10 +315,8 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
     final readMessageId = _peerLastReadMessageId;
     if (readMessageId != null) {
       if (message.id == readMessageId) return true;
-      final readIndex =
-          _messages.indexWhere((m) => m.id == readMessageId);
-      final messageIndex =
-          _messages.indexWhere((m) => m.id == message.id);
+      final readIndex = _messages.indexWhere((m) => m.id == readMessageId);
+      final messageIndex = _messages.indexWhere((m) => m.id == message.id);
       if (readIndex >= 0 && messageIndex >= 0) {
         return messageIndex <= readIndex;
       }
@@ -440,8 +434,12 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete message?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Delete')),
         ],
       ),
     );
@@ -540,16 +538,14 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
     return merged;
   }
 
-  GlobalKey _keyFor(String id) =>
-      _messageKeys.putIfAbsent(id, GlobalKey.new);
+  GlobalKey _keyFor(String id) => _messageKeys.putIfAbsent(id, GlobalKey.new);
 
   Future<void> _refreshPinned() async {
     final roomId = widget.roomId;
     if (!mounted || roomId.isEmpty) return;
     try {
-      final pinned = await context
-          .read<SendsarChatService>()
-          .getPinnedMessages(roomId);
+      final pinned =
+          await context.read<SendsarChatService>().getPinnedMessages(roomId);
       if (!mounted || widget.roomId != roomId) return;
       final sorted = _sortedPins(pinned);
       setState(() {
@@ -657,7 +653,8 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
                   )
                 : ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
                     itemCount: _messages.length + (_nextCursor != null ? 1 : 0),
                     itemBuilder: (context, index) {
                       if (_nextCursor != null && index == 0) {
@@ -668,7 +665,8 @@ class _SendsarMessageListState extends State<SendsarMessageList> {
                                 ? const SizedBox(
                                     width: 18,
                                     height: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2),
                                   )
                                 : const Text('Load older messages'),
                           ),
@@ -866,11 +864,13 @@ class _PinnedBar extends StatelessWidget {
                   tooltip: 'Unpin',
                   visualDensity: VisualDensity.compact,
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                  constraints:
+                      const BoxConstraints(minWidth: 32, minHeight: 32),
                   onPressed: onUnpin,
                   icon: Transform.rotate(
                     angle: 0.8,
-                    child: Icon(Icons.push_pin, size: 16, color: theme.textMuted),
+                    child:
+                        Icon(Icons.push_pin, size: 16, color: theme.textMuted),
                   ),
                 ),
               ],
@@ -895,9 +895,8 @@ class _PinnedBar extends StatelessWidget {
 
     const visible = 4;
     final shown = count < visible ? count : visible;
-    final start = count <= shown
-        ? 0
-        : (activeIndex - shown ~/ 2).clamp(0, count - shown);
+    final start =
+        count <= shown ? 0 : (activeIndex - shown ~/ 2).clamp(0, count - shown);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1224,9 +1223,8 @@ class _MessageBubble extends StatelessWidget {
                     child: _FitBubble(
                       expand: hasLocation || hasVoice,
                       child: GestureDetector(
-                        onLongPress: editing
-                            ? null
-                            : () => _showMessageActions(context),
+                        onLongPress:
+                            editing ? null : () => _showMessageActions(context),
                         child: Container(
                           constraints: const BoxConstraints(minWidth: 40),
                           padding: const EdgeInsets.symmetric(
@@ -1280,8 +1278,7 @@ class _MessageBubble extends StatelessWidget {
                                             Icon(
                                               Icons.forward_outlined,
                                               size: 12,
-                                              color:
-                                                  fg.withValues(alpha: 0.7),
+                                              color: fg.withValues(alpha: 0.7),
                                             ),
                                             const SizedBox(width: 4),
                                             Expanded(
@@ -1300,7 +1297,7 @@ class _MessageBubble extends StatelessWidget {
                                         ),
                                       ),
                                     // Map iframe, then attachments, then caption.
-                                    ..._locationWidgets(message),
+                                    ..._locationWidgets(context, message),
                                     ..._attachmentWidgets(context, message, fg),
                                     if (preview.isNotEmpty)
                                       Padding(
@@ -1361,14 +1358,16 @@ class _MessageBubble extends StatelessWidget {
                 right: isSelf ? 4 : 0,
               ),
               child: Align(
-                alignment: isSelf ? Alignment.centerRight : Alignment.centerLeft,
+                alignment:
+                    isSelf ? Alignment.centerRight : Alignment.centerLeft,
                 child: Wrap(
                   spacing: 4,
                   children: [
                     for (final entry in reactions.entries)
                       Material(
                         color: theme.surface,
-                        shape: StadiumBorder(side: BorderSide(color: theme.border)),
+                        shape: StadiumBorder(
+                            side: BorderSide(color: theme.border)),
                         child: InkWell(
                           onTap: () => onReact(entry.key),
                           customBorder: const StadiumBorder(),
@@ -1404,18 +1403,23 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
-  List<Widget> _locationWidgets(Message message) {
+  List<Widget> _locationWidgets(BuildContext context, Message message) {
     final location = parseLocationPart(message.parts);
     if (location == null) return const [];
     return [
       ClipRRect(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
         child: SizedBox(
-          height: 160,
+          height: 180,
           width: double.infinity,
           child: SendsarLocationMap(
             latitude: location.latitude,
             longitude: location.longitude,
+            onTap: () => showSendsarLocationViewer(
+              context,
+              latitude: location.latitude,
+              longitude: location.longitude,
+            ),
           ),
         ),
       ),
@@ -1450,28 +1454,35 @@ class _MessageBubble extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 6),
             child: GestureDetector(
-              onTap: () => _showImageDialog(context, url),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: imageHeight,
-                    maxWidth: 280,
-                  ),
-                  child: CachedNetworkImage(
-                    imageUrl: url,
-                    fit: BoxFit.cover,
-                    placeholder: (_, __) => SizedBox(
-                      height: imageHeight,
-                      width: 180,
-                      child: ColoredBox(color: theme.skeletonMuted),
+              onTap: () => showSendsarImageViewer(
+                context,
+                url: url,
+                subtitle: formatMessageTime(message.createdAt),
+              ),
+              child: Hero(
+                tag: url,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: imageHeight,
+                      maxWidth: 280,
                     ),
-                    errorWidget: (_, __, ___) => _FilePreviewChip(
-                      name: part.filename ?? 'Image',
-                      mediaType: part.mediaType ?? '',
-                      theme: theme,
-                      inverted: inverted,
-                      fg: fg,
+                    child: CachedNetworkImage(
+                      imageUrl: url,
+                      fit: BoxFit.cover,
+                      placeholder: (_, __) => SizedBox(
+                        height: imageHeight,
+                        width: 180,
+                        child: ColoredBox(color: theme.skeletonMuted),
+                      ),
+                      errorWidget: (_, __, ___) => _FilePreviewChip(
+                        name: part.filename ?? 'Image',
+                        mediaType: part.mediaType ?? '',
+                        theme: theme,
+                        inverted: inverted,
+                        fg: fg,
+                      ),
                     ),
                   ),
                 ),
@@ -1496,133 +1507,6 @@ class _MessageBubble extends StatelessWidget {
       }
     }
     return widgets;
-  }
-}
-
-void _showImageDialog(BuildContext context, String url) {
-  showDialog<void>(
-    context: context,
-    builder: (_) => _ImagePreviewDialog(url: url),
-  );
-}
-
-class _ImagePreviewDialog extends StatefulWidget {
-  const _ImagePreviewDialog({required this.url});
-
-  final String url;
-
-  @override
-  State<_ImagePreviewDialog> createState() => _ImagePreviewDialogState();
-}
-
-class _ImagePreviewDialogState extends State<_ImagePreviewDialog> {
-  bool _saving = false;
-  String? _notice;
-
-  Future<void> _download() async {
-    if (_saving) return;
-    setState(() {
-      _saving = true;
-      _notice = null;
-    });
-    try {
-      final access = await Gal.hasAccess();
-      if (!access) {
-        final granted = await Gal.requestAccess();
-        if (!granted) {
-          throw StateError('Photo access was denied');
-        }
-      }
-      final response = await http.get(Uri.parse(widget.url));
-      if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
-        throw StateError('Could not download the image');
-      }
-      await Gal.putImageBytes(
-        response.bodyBytes,
-        name: 'chat-${DateTime.now().millisecondsSinceEpoch}',
-      );
-      if (!mounted) return;
-      setState(() => _notice = 'Saved to gallery');
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _notice = 'Could not save image');
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    return Dialog(
-      backgroundColor: Colors.black,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 32),
-      child: SizedBox(
-        width: size.width,
-        height: size.height * 0.7,
-        child: Stack(
-          children: [
-            InteractiveViewer(
-              minScale: 1,
-              maxScale: 4,
-              child: CachedNetworkImage(
-                imageUrl: widget.url,
-                width: size.width,
-                height: size.height * 0.7,
-                fit: BoxFit.contain,
-                placeholder: (_, __) => const Center(
-                  child: CircularProgressIndicator(),
-                ),
-                errorWidget: (_, __, ___) => const Icon(
-                  Icons.broken_image_outlined,
-                  color: Colors.white,
-                  size: 48,
-                ),
-              ),
-            ),
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: 'Download',
-                    onPressed: _saving ? null : _download,
-                    icon: _saving
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(Icons.download, color: Colors.white),
-                  ),
-                  IconButton(
-                    tooltip: 'Close',
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close, color: Colors.white),
-                  ),
-                ],
-              ),
-            ),
-            if (_notice != null)
-              Positioned(
-                left: 12,
-                right: 12,
-                bottom: 12,
-                child: Text(
-                  _notice!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
   }
 }
 
@@ -1658,13 +1542,11 @@ class _FilePreviewChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bg = inverted
-        ? Colors.white.withValues(alpha: 0.14)
-        : theme.sidebarBg;
+    final bg =
+        inverted ? Colors.white.withValues(alpha: 0.14) : theme.sidebarBg;
     final borderColor = inverted ? Colors.transparent : theme.border;
-    final iconBg = inverted
-        ? Colors.white.withValues(alpha: 0.18)
-        : theme.surface;
+    final iconBg =
+        inverted ? Colors.white.withValues(alpha: 0.18) : theme.surface;
     final iconColor = inverted ? fg : theme.accent;
     final nameColor = inverted ? fg : theme.textSecondary;
 
@@ -1702,8 +1584,7 @@ class _FilePreviewChip extends StatelessWidget {
                   fontSize: 13.5,
                   fontWeight: FontWeight.w500,
                   color: nameColor,
-                  decoration:
-                      href != null ? TextDecoration.underline : null,
+                  decoration: href != null ? TextDecoration.underline : null,
                 ),
               ),
             ),
