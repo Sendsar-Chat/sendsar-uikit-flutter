@@ -1141,6 +1141,20 @@ class _MessageBubble extends StatelessWidget {
     final displayName = isSelf ? '$senderName (Me)' : senderName;
     final hasLocation = parseLocationPart(message.parts) != null;
     final hasVoice = fileParts(message.parts).any(isAudioPart);
+    final files = fileParts(message.parts);
+    final hasImages =
+        files.any((p) => isImagePart(p) && filePartUrl(p) != null);
+    // Telegram-style: a photo / location with no caption fills the bubble
+    // edge to edge and shows the time on top of the media.
+    final mediaOnly = !editing &&
+        message.deletedAt == null &&
+        forwardedFromLabel == null &&
+        preview.isEmpty &&
+        !hasVoice &&
+        (hasLocation
+            ? files.isEmpty
+            : hasImages &&
+                files.every((p) => isImagePart(p) && filePartUrl(p) != null));
 
     final reactions = <String, int>{};
     for (final r in message.reactions ?? const []) {
@@ -1216,127 +1230,170 @@ class _MessageBubble extends StatelessWidget {
                       isSelf ? Alignment.centerRight : Alignment.centerLeft,
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
-                      maxWidth: hasLocation || hasVoice
-                          ? 280
-                          : MediaQuery.sizeOf(context).width * 0.5,
+                      maxWidth: mediaOnly
+                          ? (MediaQuery.sizeOf(context).width * 0.75)
+                              .clamp(0.0, 280.0)
+                          : hasLocation || hasVoice
+                              ? 280
+                              : MediaQuery.sizeOf(context).width * 0.5,
                     ),
                     child: _FitBubble(
-                      expand: hasLocation || hasVoice,
+                      expand: hasLocation || hasVoice || mediaOnly,
                       child: GestureDetector(
                         onLongPress:
                             editing ? null : () => _showMessageActions(context),
                         child: Container(
                           constraints: const BoxConstraints(minWidth: 40),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
+                          clipBehavior: Clip.antiAlias,
+                          padding: mediaOnly
+                              ? EdgeInsets.zero
+                              : const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
                           decoration: BoxDecoration(
                             color: bg,
                             borderRadius: BorderRadius.circular(radius),
                           ),
-                          child: editing
-                              ? Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
+                          child: mediaOnly
+                              ? Stack(
                                   children: [
-                                    TextField(
-                                      controller: editController,
-                                      maxLines: 4,
-                                      style: TextStyle(color: fg),
-                                      decoration: const InputDecoration(
-                                        isDense: true,
-                                        border: InputBorder.none,
-                                      ),
-                                    ),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.end,
+                                    Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
                                       children: [
-                                        TextButton(
-                                          onPressed: onCancelEdit,
-                                          child: const Text('Cancel'),
+                                        ..._locationWidgets(
+                                          context,
+                                          message,
+                                          bleed: true,
                                         ),
-                                        TextButton(
-                                          onPressed: onSaveEdit,
-                                          child: const Text('Save'),
+                                        ..._attachmentWidgets(
+                                          context,
+                                          message,
+                                          fg,
+                                          bleed: true,
                                         ),
                                       ],
                                     ),
+                                    Positioned(
+                                      right: 6,
+                                      bottom: 6,
+                                      child: _MediaTimeBadge(
+                                        time: formatMessageTime(createdAt),
+                                        showTicks: isSelf,
+                                        isRead: isRead,
+                                      ),
+                                    ),
                                   ],
                                 )
-                              : Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    if (forwardedFromLabel != null)
-                                      Padding(
-                                        padding:
-                                            const EdgeInsets.only(bottom: 2),
-                                        child: Row(
+                              : editing
+                                  ? Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        TextField(
+                                          controller: editController,
+                                          maxLines: 4,
+                                          style: TextStyle(color: fg),
+                                          decoration: const InputDecoration(
+                                            isDense: true,
+                                            border: InputBorder.none,
+                                          ),
+                                        ),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.end,
                                           children: [
-                                            Icon(
-                                              Icons.forward_outlined,
-                                              size: 12,
-                                              color: fg.withValues(alpha: 0.7),
+                                            TextButton(
+                                              onPressed: onCancelEdit,
+                                              child: const Text('Cancel'),
                                             ),
-                                            const SizedBox(width: 4),
-                                            Expanded(
-                                              child: Text(
-                                                forwardedFromLabel!,
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  fontStyle: FontStyle.italic,
-                                                  color: fg.withValues(
-                                                    alpha: 0.7,
-                                                  ),
-                                                ),
-                                              ),
+                                            TextButton(
+                                              onPressed: onSaveEdit,
+                                              child: const Text('Save'),
                                             ),
                                           ],
                                         ),
-                                      ),
-                                    // Map iframe, then attachments, then caption.
-                                    ..._locationWidgets(context, message),
-                                    ..._attachmentWidgets(context, message, fg),
-                                    if (preview.isNotEmpty)
-                                      Padding(
-                                        padding: EdgeInsets.only(
-                                          top: fileParts(message.parts)
-                                                  .isNotEmpty
-                                              ? 6
-                                              : 0,
-                                        ),
-                                        child: SendsarMessageText(
-                                          text: preview,
-                                          style: TextStyle(
-                                            color: fg,
-                                            height: 1.35,
+                                      ],
+                                    )
+                                  : Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        if (forwardedFromLabel != null)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                                bottom: 2),
+                                            child: Row(
+                                              children: [
+                                                Icon(
+                                                  Icons.forward_outlined,
+                                                  size: 12,
+                                                  color:
+                                                      fg.withValues(alpha: 0.7),
+                                                ),
+                                                const SizedBox(width: 4),
+                                                Expanded(
+                                                  child: Text(
+                                                    forwardedFromLabel!,
+                                                    style: TextStyle(
+                                                      fontSize: 11,
+                                                      fontStyle:
+                                                          FontStyle.italic,
+                                                      color: fg.withValues(
+                                                        alpha: 0.7,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
                                           ),
-                                          animatedEmoji: animatedEmoji,
-                                        ),
-                                      ),
-                                    if (isSelf)
-                                      Align(
-                                        alignment: Alignment.centerRight,
-                                        child: Padding(
-                                          padding:
-                                              const EdgeInsets.only(top: 2),
-                                          child: Icon(
-                                            isRead
-                                                ? Icons.done_all
-                                                : Icons.done,
-                                            size: 14,
-                                            color: isRead
-                                                ? theme.bubbleSelfText
-                                                    .withValues(alpha: 0.85)
-                                                : theme.bubbleSelfText
-                                                    .withValues(alpha: 0.55),
+                                        // Map iframe, then attachments, then caption.
+                                        ..._locationWidgets(context, message),
+                                        ..._attachmentWidgets(
+                                            context, message, fg),
+                                        if (preview.isNotEmpty)
+                                          Padding(
+                                            padding: EdgeInsets.only(
+                                              top: fileParts(message.parts)
+                                                      .isNotEmpty
+                                                  ? 6
+                                                  : 0,
+                                            ),
+                                            child: SendsarMessageText(
+                                              text: preview,
+                                              style: TextStyle(
+                                                color: fg,
+                                                height: 1.35,
+                                              ),
+                                              animatedEmoji: animatedEmoji,
+                                            ),
                                           ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
+                                        if (isSelf)
+                                          Align(
+                                            alignment: Alignment.centerRight,
+                                            child: Padding(
+                                              padding:
+                                                  const EdgeInsets.only(top: 2),
+                                              child: Icon(
+                                                isRead
+                                                    ? Icons.done_all
+                                                    : Icons.done,
+                                                size: 14,
+                                                color: isRead
+                                                    ? theme.bubbleSelfText
+                                                        .withValues(alpha: 0.85)
+                                                    : theme.bubbleSelfText
+                                                        .withValues(
+                                                            alpha: 0.55),
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
                         ),
                       ),
                     ),
@@ -1403,14 +1460,18 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
-  List<Widget> _locationWidgets(BuildContext context, Message message) {
+  List<Widget> _locationWidgets(
+    BuildContext context,
+    Message message, {
+    bool bleed = false,
+  }) {
     final location = parseLocationPart(message.parts);
     if (location == null) return const [];
     return [
       ClipRRect(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(bleed ? 0 : 12),
         child: SizedBox(
-          height: 180,
+          height: bleed ? 200 : 180,
           width: double.infinity,
           child: SendsarLocationMap(
             latitude: location.latitude,
@@ -1429,8 +1490,9 @@ class _MessageBubble extends StatelessWidget {
   List<Widget> _attachmentWidgets(
     BuildContext context,
     Message message,
-    Color fg,
-  ) {
+    Color fg, {
+    bool bleed = false,
+  }) {
     final imageHeight = listStyle?.imageHeight ?? 160.0;
     final widgets = <Widget>[];
     final inverted = isSelf;
@@ -1450,9 +1512,27 @@ class _MessageBubble extends StatelessWidget {
           ),
         );
       } else if (isImagePart(part) && url != null) {
+        final image = CachedNetworkImage(
+          imageUrl: url,
+          fit: BoxFit.cover,
+          width: bleed ? double.infinity : null,
+          placeholder: (_, __) => SizedBox(
+            height: bleed ? 220 : imageHeight,
+            width: bleed ? double.infinity : 180,
+            child: ColoredBox(color: theme.skeletonMuted),
+          ),
+          errorWidget: (_, __, ___) => _FilePreviewChip(
+            name: part.filename ?? 'Image',
+            mediaType: part.mediaType ?? '',
+            theme: theme,
+            inverted: inverted,
+            fg: fg,
+          ),
+        );
         widgets.add(
           Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding:
+                EdgeInsets.only(top: bleed ? (widgets.isEmpty ? 0 : 2) : 6),
             child: GestureDetector(
               onTap: () => showSendsarImageViewer(
                 context,
@@ -1462,28 +1542,13 @@ class _MessageBubble extends StatelessWidget {
               child: Hero(
                 tag: url,
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(bleed ? 0 : 12),
                   child: ConstrainedBox(
                     constraints: BoxConstraints(
-                      maxHeight: imageHeight,
+                      maxHeight: bleed ? 340 : imageHeight,
                       maxWidth: 280,
                     ),
-                    child: CachedNetworkImage(
-                      imageUrl: url,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) => SizedBox(
-                        height: imageHeight,
-                        width: 180,
-                        child: ColoredBox(color: theme.skeletonMuted),
-                      ),
-                      errorWidget: (_, __, ___) => _FilePreviewChip(
-                        name: part.filename ?? 'Image',
-                        mediaType: part.mediaType ?? '',
-                        theme: theme,
-                        inverted: inverted,
-                        fg: fg,
-                      ),
-                    ),
+                    child: image,
                   ),
                 ),
               ),
@@ -1507,6 +1572,49 @@ class _MessageBubble extends StatelessWidget {
       }
     }
     return widgets;
+  }
+}
+
+/// Dark pill with the send time (and read ticks) laid over photos / maps.
+class _MediaTimeBadge extends StatelessWidget {
+  const _MediaTimeBadge({
+    required this.time,
+    required this.showTicks,
+    required this.isRead,
+  });
+
+  final String time;
+  final bool showTicks;
+  final bool isRead;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0x73000000),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              time,
+              style: const TextStyle(color: Colors.white, fontSize: 11),
+            ),
+            if (showTicks) ...[
+              const SizedBox(width: 3),
+              Icon(
+                isRead ? Icons.done_all : Icons.done,
+                size: 14,
+                color: Colors.white,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
   }
 }
 
